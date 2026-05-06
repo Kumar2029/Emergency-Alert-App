@@ -71,19 +71,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (permission == LocationPermission.denied) {
           permission = await Geolocator.requestPermission();
         }
+        
+        // Use real GPS with a longer timeout for the first fix
         pos = await Geolocator.getCurrentPosition(
           desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 5),
+          timeLimit: const Duration(seconds: 15),
         );
       } catch (e) {
-        print("GPS Error, using mock location: $e");
-        // Fallback to a mock location for desktop testing
-        pos = Position(
-          latitude: 40.7128, longitude: -74.0060, // NYC Coordinates
-          timestamp: DateTime.now(), accuracy: 0, altitude: 0, 
-          heading: 0, speed: 0, speedAccuracy: 0, altitudeAccuracy: 0, 
-          headingAccuracy: 0,
-        );
+        print("Real GPS Error: $e");
+        setState(() => _status = "❌ GPS ERROR: $e");
+        return; // Stop here so we don't send a fake location
       }
       
       final locationUrl = "https://maps.google.com/?q=${pos.latitude},${pos.longitude}";
