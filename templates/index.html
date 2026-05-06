@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Emergency Alert</title>
+
+    <style>
+        body {
+            font-family: Arial;
+            text-align: center;
+            margin-top: 100px;
+        }
+
+        .alert-btn {
+            background: red;
+            color: white;
+            padding: 20px 40px;
+            font-size: 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        #status {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>🚨 Emergency Alert System 🚨</h1>
+
+    <!-- ✅ BUTTON -->
+    <button class="alert-btn" onclick="sendHelp()">SEND HELP</button>
+
+    <!-- ✅ ADD STATUS HERE (IMPORTANT) -->
+    <div id="status"></div>
+
+    <!-- ✅ ADD SCRIPT AT BOTTOM -->
+    <script>
+        function sendHelp() {
+            const status = document.getElementById("status");
+
+            if (!navigator.geolocation) {
+                status.innerHTML = "❌ Geolocation not supported";
+                return;
+            }
+
+            status.innerHTML = "📡 Getting location...";
+
+            navigator.geolocation.getCurrentPosition(
+                function(position) {
+                    let location = `https://maps.google.com/?q=${position.coords.latitude},${position.coords.longitude}`;
+
+                    status.innerHTML = "📡 Sending alert...";
+
+                    fetch("/send_alert", {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "application/json"
+                        },
+                        body: JSON.stringify({ location: location })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        status.innerHTML = data.status;
+                    })
+                    .catch(err => {
+                        status.innerHTML = "❌ Error sending alert!";
+                        console.error(err);
+                    });
+                },
+                function(error) {
+                    status.innerHTML = "❌ Location permission denied!";
+                }
+            );
+        }
+    </script>
+
+</body>
+</html>
