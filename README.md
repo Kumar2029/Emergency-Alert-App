@@ -42,7 +42,10 @@ A robust, multi-channel emergency response system designed for high-stakes safet
 
 ### 2. Frontend Setup (Flutter)
 1. Navigate to the `emergency_mobile` directory.
-2. Update the `base_url` in `lib/api_service.dart` to match your server's IP address.
+2. **CRITICAL STEP**: Open `lib/api_service.dart` and update the `baseUrl` variable:
+   ```dart
+   static const String baseUrl = 'http://127.0.0.1:5000'; // Replace with your laptop's IP
+   ```
 3. Install Flutter packages:
    ```bash
    flutter pub get
