@@ -57,6 +57,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context) {
         final nameC = TextEditingController();
         final emailC = TextEditingController();
+        final phoneC = TextEditingController();
         return AlertDialog(
           title: const Text("Add Contact"),
           content: Column(
@@ -64,13 +65,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
             children: [
               TextField(controller: nameC, decoration: const InputDecoration(labelText: "Name")),
               TextField(controller: emailC, decoration: const InputDecoration(labelText: "Email")),
+              TextField(controller: phoneC, decoration: const InputDecoration(labelText: "Phone (e.g. +919876543210)"), keyboardType: TextInputType.phone),
             ],
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancel")),
             TextButton(
               onPressed: () {
-                setState(() => _contacts.add({"name": nameC.text, "email": emailC.text}));
+                setState(() => _contacts.add({
+                  "name": nameC.text, 
+                  "email": emailC.text,
+                  "phone": phoneC.text
+                }));
                 Navigator.pop(context);
               },
               child: const Text("Add"),
@@ -111,12 +117,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           ..._contacts.map((c) => ListTile(
             title: Text(c['name']!),
-            subtitle: Text(c['email']!),
+            subtitle: Text("${c['email']} • ${c['phone'] ?? 'No Phone'}"),
             trailing: IconButton(
               icon: const Icon(Icons.delete, color: Colors.red),
               onPressed: () => setState(() => _contacts.remove(c)),
             ),
           )).toList(),
+          const SizedBox(height: 30),
+          ElevatedButton.icon(
+            onPressed: _saveProfile,
+            icon: const Icon(Icons.check_circle),
+            label: const Text("SAVE SAFETY PROFILE"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.greenAccent.withOpacity(0.2),
+              foregroundColor: Colors.greenAccent,
+              padding: const EdgeInsets.symmetric(vertical: 15),
+              side: const BorderSide(color: Colors.greenAccent),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
+            ),
+          ),
+          const SizedBox(height: 50),
         ],
       ),
     );

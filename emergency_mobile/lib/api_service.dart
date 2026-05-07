@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   // Use 10.0.2.2 for Android Emulator, or your local IP for physical devices
-  static const String baseUrl = 'http://127.0.0.1:5000';
+  static const String baseUrl = 'http://YOUR_SERVER_IP:5000';
 
   static Future<http.Response> register(String email, String password, String name) async {
     return await http.post(
@@ -48,5 +48,23 @@ class ApiService {
       },
       body: jsonEncode({'location': location}),
     );
+  }
+
+  static Future<http.Response> updateLocation(String token, String location) async {
+    return await http.post(
+      Uri.parse('$baseUrl/update_location'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({'location': location}),
+    );
+  }
+
+  static Future<http.StreamedResponse> uploadEvidence(String token, String filePath) async {
+    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload_evidence'));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    return await request.send();
   }
 }

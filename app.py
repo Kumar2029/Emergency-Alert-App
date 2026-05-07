@@ -1,13 +1,15 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 import os
 import smtplib
 import datetime
 import jwt
+import time
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from email.message import EmailMessage
+from twilio.rest import Client
 
 app = Flask(__name__)
 CORS(app) 
@@ -18,18 +20,25 @@ app.config['SECRET_KEY'] = "emergency-secret-123"
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
 db = SQLAlchemy(app)
 
 def get_env_config():
     """Manually parse .env to be 100% sure we get the latest values."""
     config = {}
     try:
-        with open(".env", "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if "=" in line and not line.startswith("#"):
-                    key, val = line.split("=", 1)
-                    config[key.strip()] = val.strip()
+        if os.path.exists(".env"):
+            with open(".env", "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if "=" in line and not line.startswith("#"):
+                        key, val = line.split("=", 1)
+                        config[key.strip()] = val.strip()
     except Exception as e:
         print(f"⚠️ Error reading .env: {e}")
     return config
@@ -41,6 +50,7 @@ class User(db.Model):
     password = db.Column(db.String(60), nullable=False)
     full_name = db.Column(db.String(100))
     medical_notes = db.Column(db.Text)
+    current_location = db.Column(db.String(255))
     contacts = db.relationship('EmergencyContact', backref='owner', lazy=True)
 
 class EmergencyContact(db.Model):
@@ -63,7 +73,6 @@ def token_required(f):
         try:
             token = token.split(" ")[1]
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
-            # Use db.session.get for SQLAlchemy 2.0 compatibility
             current_user = db.session.get(User, data['user_id'])
         except Exception as e:
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
@@ -81,7 +90,6 @@ def register():
     data = request.get_json()
     if User.query.filter_by(email=data['email']).first():
         return jsonify({"message": "User already exists"}), 400
-    
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
     new_user = User(email=data['email'], password=hashed_password, full_name=data.get('full_name', ''))
     db.session.add(new_user)
@@ -92,15 +100,12 @@ def register():
 def login():
     data = request.get_json()
     user = User.query.filter_by(email=data['email']).first()
-    
     if user and bcrypt.check_password_hash(user.password, data['password']):
         token = jwt.encode({
             'user_id': user.id,
             'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
         }, app.config['SECRET_KEY'])
-        
         return jsonify({'token': token, 'full_name': user.full_name})
-    
     return jsonify({"message": "Invalid credentials"}), 401
 
 @app.route("/profile", methods=["GET", "POST"])
@@ -110,7 +115,6 @@ def profile(current_user):
         data = request.get_json()
         current_user.full_name = data.get('full_name', current_user.full_name)
         current_user.medical_notes = data.get('medical_notes', current_user.medical_notes)
-        
         if 'contacts' in data:
             EmergencyContact.query.filter_by(user_id=current_user.id).delete()
             for c in data['contacts']:
@@ -121,17 +125,86 @@ def profile(current_user):
                     user_id=current_user.id
                 )
                 db.session.add(new_contact)
-        
         db.session.commit()
         return jsonify({"message": "Profile updated successfully"})
-
     contacts = [{"name": c.name, "email": c.email, "phone": c.phone} for c in current_user.contacts]
-    return jsonify({
-        "full_name": current_user.full_name,
-        "email": current_user.email,
-        "medical_notes": current_user.medical_notes,
-        "contacts": contacts
-    })
+    return jsonify({"full_name": current_user.full_name, "email": current_user.email, "medical_notes": current_user.medical_notes, "contacts": contacts})
+
+@app.route("/update_location", methods=["POST"])
+@token_required
+def update_location(current_user):
+    data = request.get_json()
+    new_location = data.get("location")
+    if new_location:
+        current_user.current_location = new_location
+        db.session.commit()
+        return jsonify({"status": "Updated"})
+    return jsonify({"status": "Error"}), 400
+
+@app.route("/upload_evidence", methods=["POST"])
+@token_required
+def upload_evidence(current_user):
+    if 'file' not in request.files:
+        return jsonify({"message": "No file part"}), 400
+    file = request.files['file']
+    filename = f"sos_{current_user.id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.m4a"
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    
+    config = get_env_config()
+    evidence_url = f"http://{request.host}/uploads/{filename}"
+    tracking_url = f"http://{request.host}/track/{current_user.id}"
+    
+    # Send Second Alert with Audio Link
+    EMAIL = config.get("ALERT_EMAIL")
+    PASSWORD = config.get("ALERT_APP_PASSWORD", "").replace(" ", "").strip()
+    if EMAIL and PASSWORD:
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.starttls()
+                server.login(EMAIL, PASSWORD)
+                for contact in current_user.contacts:
+                    if contact.email:
+                        msg = EmailMessage()
+                        msg["From"] = EMAIL
+                        msg["To"] = contact.email
+                        msg["Subject"] = f"🎙️ AUDIO EVIDENCE: {current_user.full_name}"
+                        msg.set_content(f"Audio captured. Listen here: {evidence_url}\nLive Tracking: {tracking_url}")
+                        server.send_message(msg)
+        except: pass
+
+    TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH = config.get("TWILIO_AUTH_TOKEN")
+    TWILIO_FROM = config.get("TWILIO_WHATSAPP_NUMBER")
+    if TWILIO_SID and TWILIO_AUTH and TWILIO_FROM:
+        try:
+            client = Client(TWILIO_SID, TWILIO_AUTH)
+            for contact in current_user.contacts:
+                if contact.phone:
+                    clean_phone = str(contact.phone).strip()
+                    if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+                    client.messages.create(
+                        body=f"🎙️ *Audio Ready*: {evidence_url}\n📍 *Live Tracking*: {tracking_url}",
+                        from_=TWILIO_FROM,
+                        to=f"whatsapp:{clean_phone}"
+                    )
+        except: pass
+
+    return jsonify({"message": "Uploaded", "url": evidence_url})
+
+@app.route("/track/<int:user_id>")
+def live_track(user_id):
+    return render_template("track.html", user_id=user_id)
+
+@app.route("/get_location/<int:user_id>")
+def get_location(user_id):
+    user = db.session.get(User, user_id)
+    if user:
+        return jsonify({"location": user.current_location, "full_name": user.full_name})
+    return jsonify({"error": "Not found"}), 404
+
+@app.route('/uploads/<filename>')
+def serve_upload(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route("/send_alert", methods=["POST"])
 @token_required
@@ -140,44 +213,56 @@ def send_alert(current_user):
         data = request.get_json(silent=True) or {}
         location = data.get("location")
         if not location:
-            return jsonify({"status": "❌ Location not provided."}), 400
+            return jsonify({"status": "❌ Location missing"}), 400
 
-        contacts = current_user.contacts
-        if not contacts:
-            return jsonify({"status": "❌ No emergency contacts saved."}), 400
-
-        # FORCE RE-LOAD OF .ENV
         config = get_env_config()
+        tracking_url = f"http://{request.host}/track/{current_user.id}"
+        
+        # 1. EMAIL
         EMAIL = config.get("ALERT_EMAIL")
         PASSWORD = config.get("ALERT_APP_PASSWORD", "").replace(" ", "").strip()
+        if EMAIL and PASSWORD:
+            try:
+                with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                    server.starttls()
+                    server.login(EMAIL, PASSWORD)
+                    for contact in current_user.contacts:
+                        if contact.email:
+                            print(f"📧 Attempting Email to: {contact.email}")
+                            msg = EmailMessage()
+                            msg["From"] = EMAIL
+                            msg["To"] = contact.email
+                            msg["Subject"] = f"🚨 SOS: {current_user.full_name} NEEDS HELP"
+                            msg.set_content(f"URGENT: {current_user.full_name} has triggered an SOS.\n\nLocation: {location}\nLive Tracking: {tracking_url}")
+                            server.send_message(msg)
+                            print(f"✅ Email Sent to {contact.email}")
+            except Exception as e: 
+                print(f"❌ Email System Error: {e}")
 
-        if not EMAIL or not PASSWORD:
-            return jsonify({"status": "❌ Server config error."}), 500
+        # 2. WHATSAPP
+        TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
+        TWILIO_AUTH = config.get("TWILIO_AUTH_TOKEN")
+        TWILIO_FROM = config.get("TWILIO_WHATSAPP_NUMBER")
+        if TWILIO_SID and TWILIO_AUTH and TWILIO_FROM:
+            try:
+                client = Client(TWILIO_SID, TWILIO_AUTH)
+                for contact in current_user.contacts:
+                    if contact.phone:
+                        clean_phone = str(contact.phone).strip()
+                        if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+                        print(f"🟢 Attempting WhatsApp to: {clean_phone}")
+                        client.messages.create(
+                            body=f"🔴 EMERGENCY: {current_user.full_name} needs help!\n📍 Location: {location}\n🛰️ Live Tracking: {tracking_url}",
+                            from_=TWILIO_FROM,
+                            to=f"whatsapp:{clean_phone}"
+                        )
+                        print(f"✅ WhatsApp Sent to {clean_phone}")
+            except Exception as twilio_e: 
+                print(f"❌ WhatsApp System Error: {twilio_e}")
 
-        print(f"🛰️ Sending alert for {current_user.full_name} via {EMAIL}...")
-
-        with smtplib.SMTP("smtp.gmail.com", 587) as server:
-            server.starttls()
-            server.login(EMAIL, PASSWORD)
-
-            for contact in contacts:
-                msg = EmailMessage()
-                msg["From"] = EMAIL
-                msg["To"] = contact.email
-                msg["Subject"] = f"EMERGENCY: {current_user.full_name} NEEDS HELP"
-                msg.set_content(
-                    f"URGENT ALERT!\n\n"
-                    f"Sender: {current_user.full_name}\n"
-                    f"Medical Info: {current_user.medical_notes or 'None'}\n"
-                    f"Location Link:\n{location}\n"
-                )
-                server.send_message(msg)
-
-        return jsonify({"status": "✅ Alert Sent Successfully!"})
-
+        return jsonify({"status": "✅ Alerts Dispatched"})
     except Exception as e:
-        print(f"❌ SERVER ERROR: {e}")
         return jsonify({"status": f"❌ Error: {str(e)}"}), 500
 
 if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0')
+    app.run(debug=True, host='0.0.0.0', port=5000)
