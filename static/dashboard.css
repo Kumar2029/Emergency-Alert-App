@@ -1,0 +1,397 @@
+:root {
+    --bg-color: #050505;
+    --card-bg: rgba(18, 18, 22, 0.75);
+    --accent-red: #ff3e3e;
+    --accent-glow: rgba(255, 62, 62, 0.3);
+    --text-primary: #ffffff;
+    --text-secondary: #94a3b8;
+    --glass-border: rgba(255, 255, 255, 0.1);
+    --font-main: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--font-main);
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Map Styling */
+#map {
+    height: 100vh;
+    width: 100vw;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1;
+    background-color: #0a0a0a;
+}
+
+/* Glass Panels */
+.glass-panel {
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    border-radius: 24px;
+    padding: 24px;
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8);
+    pointer-events: auto;
+}
+
+/* Dashboard Layout */
+.dashboard-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-areas: 
+        "header header header"
+        "left center right";
+    grid-template-columns: 350px 1fr 350px;
+    grid-template-rows: 80px 1fr;
+    padding: 20px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.dashboard-overlay > * {
+    pointer-events: all;
+}
+
+/* Header */
+.header {
+    grid-area: header;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    pointer-events: auto;
+}
+
+.logo-section {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.sos-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255, 62, 62, 0.1);
+    padding: 8px 16px;
+    border-radius: 100px;
+    border: 1px solid var(--accent-red);
+    color: var(--accent-red);
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-size: 14px;
+}
+
+.status-pulse {
+    width: 12px;
+    height: 12px;
+    background: var(--accent-red);
+    border-radius: 50%;
+    box-shadow: 0 0 12px var(--accent-red);
+    animation: pulse-red 2s infinite;
+}
+
+/* Left Sidebar - Victim Info */
+.sidebar-left {
+    grid-area: left;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.victim-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 16px;
+}
+
+.avatar-large {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-red), #ff8c00);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 32px;
+    font-weight: 800;
+    border: 4px solid var(--glass-border);
+}
+
+.location-info {
+    width: 100%;
+}
+
+.info-label {
+    font-size: 10px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 4px;
+}
+
+.info-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+/* Right Sidebar - Audio & Logs */
+.sidebar-right {
+    grid-area: right;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.audio-card {
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.05) 0%, transparent 100%);
+}
+
+.waveform-container {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    margin-top: 12px;
+}
+
+.waveform-bar {
+    flex: 1;
+    background: var(--accent-red);
+    border-radius: 2px;
+    animation: wave-bounce 1s infinite ease-in-out;
+}
+
+.log-container {
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 5px;
+    font-size: 12px;
+}
+
+.log-container::-webkit-scrollbar {
+    width: 4px;
+}
+
+.log-container::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+}
+
+.log-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--glass-border);
+    display: flex;
+    gap: 12px;
+}
+
+.log-time {
+    color: var(--accent-red);
+    font-weight: 700;
+}
+
+/* Radar Animation Overlay */
+.radar-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 600px;
+    height: 600px;
+    border: 1px solid rgba(255, 62, 62, 0.15);
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 2;
+}
+
+.radar-sweep {
+    position: absolute;
+    width: 50%;
+    height: 50%;
+    top: 0;
+    left: 50%;
+    background: conic-gradient(from 0deg, var(--accent-glow), transparent 90deg);
+    transform-origin: bottom left;
+    animation: rotate 4s linear infinite;
+    border-radius: 0 100% 0 0;
+}
+
+/* Animations */
+@keyframes pulse-red {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.2); opacity: 0.7; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+@keyframes wave-bounce {
+    0%, 100% { height: 20%; }
+    50% { height: 100%; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.fade-in {
+    animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Marker Styling */
+.pulse-marker-elite {
+    width: 24px;
+    height: 24px;
+    background: var(--accent-red);
+    border: 3px solid white;
+    border-radius: 50%;
+    box-shadow: 0 0 20px var(--accent-red);
+}
+
+.pulse-marker-elite::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    border: 2px solid var(--accent-red);
+    border-radius: 50%;
+    animation: marker-ripple 2s infinite;
+}
+
+@keyframes marker-ripple {
+    0% { transform: scale(1); opacity: 1; }
+    100% { transform: scale(4); opacity: 0; }
+}
+/* Mobile Responsiveness */
+@media (max-width: 768px) {
+    .dashboard-container {
+        padding: 10px;
+    }
+    .sidebar {
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: 10px;
+        pointer-events: none; /* Allow touching map through gaps */
+    }
+    .card {
+        width: calc(50% - 5px); /* Side-by-side cards */
+        pointer-events: auto;
+        padding: 12px;
+        margin-bottom: 0;
+    }
+    .log-container {
+        max-height: 120px; /* Limit log height on mobile */
+        font-size: 9px;
+    }
+    .audio-card {
+        width: 100%; /* Keep audio full width or hide logo */
+    }
+    .profile-img {
+        width: 40px;
+        height: 40px;
+    }
+    h2 { font-size: 14px; }
+    .status-text { font-size: 10px; }
+}
+
+/* Mobile Tactical Overlay */
+@media (max-width: 900px) {
+    .dashboard-overlay {
+        display: block !important; /* Kill the grid */
+        position: relative;
+        height: 100vh;
+        overflow: hidden;
+        pointer-events: none; /* Allow touching map */
+    }
+
+    .header {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        z-index: 100;
+        padding: 10px 15px;
+        background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+        flex-direction: row !important;
+        justify-content: space-between;
+        pointer-events: auto;
+    }
+
+    .header div { font-size: 14px !important; }
+    .sos-indicator { font-size: 10px !important; padding: 4px 10px !important; }
+
+    .sidebar-left {
+        position: absolute;
+        top: 60px;
+        left: 10px;
+        width: 160px; /* Small tile */
+        z-index: 90;
+        pointer-events: auto;
+    }
+
+    .sidebar-right {
+        position: absolute;
+        top: 60px;
+        right: 10px;
+        width: 160px; /* Small tile */
+        z-index: 90;
+        pointer-events: auto;
+    }
+
+    .glass-panel {
+        margin-bottom: 10px !important;
+        padding: 12px !important;
+        background: rgba(10, 10, 10, 0.8) !important;
+        backdrop-filter: blur(10px);
+    }
+
+    .avatar-large {
+        width: 40px !important;
+        height: 40px !important;
+        font-size: 18px !important;
+    }
+
+    #userName { font-size: 16px !important; }
+    .location-info { margin-top: 8px !important; }
+    .info-label { font-size: 8px !important; }
+    .info-value { font-size: 10px !important; }
+
+    .waveform-container { height: 30px !important; }
+    .log-container {
+        position: absolute;
+        bottom: 20px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+        max-height: 100px;
+        z-index: 90;
+        pointer-events: auto;
+    }
+    
+    .radar-overlay { display: none; } /* Hide radar on mobile to save battery/visibility */
+}

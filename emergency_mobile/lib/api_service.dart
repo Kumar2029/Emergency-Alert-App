@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 
 class ApiService {
   // Use 10.0.2.2 for Android Emulator, or your local IP for physical devices
-  static const String baseUrl = 'http://YOUR_SERVER_IP:5000';
+  static const String baseUrl = 'https://spokesman-wind-cedar.ngrok-free.dev';
 
   static Future<http.Response> register(String email, String password, String name) async {
     return await http.post(
@@ -39,25 +39,34 @@ class ApiService {
     );
   }
 
-  static Future<http.Response> sendAlert(String token, String location) async {
+  static Future<http.Response> sendAlert(String token, String location, {String category = "General"}) async {
     return await http.post(
       Uri.parse('$baseUrl/send_alert'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'location': location}),
+      body: jsonEncode({
+        'location': location,
+        'category': category
+      }),
     );
   }
 
-  static Future<http.Response> updateLocation(String token, String location) async {
+  static Future<http.Response> updateLocation(String token, String location, {String battery = "", String category = ""}) async {
+    Map<String, String> body = {
+      'location': location,
+    };
+    if (battery.isNotEmpty) body['battery'] = battery;
+    if (category.isNotEmpty) body['category'] = category;
+
     return await http.post(
       Uri.parse('$baseUrl/update_location'),
       headers: {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer $token',
       },
-      body: jsonEncode({'location': location}),
+      body: jsonEncode(body),
     );
   }
 

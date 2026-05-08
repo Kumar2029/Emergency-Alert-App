@@ -16,14 +16,15 @@ CORS(app)
 bcrypt = Bcrypt(app)
 
 # --- CONFIGURATION & ENV LOADING ---
-app.config['SECRET_KEY'] = "emergency-secret-123"
+env_config = get_env_config()
+app.config['SECRET_KEY'] = env_config.get('SECRET_KEY', 'development-key-change-me')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
+# Ensure upload folder exists
 UPLOAD_FOLDER = 'uploads'
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
-
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
 db = SQLAlchemy(app)
@@ -51,6 +52,8 @@ class User(db.Model):
     full_name = db.Column(db.String(100))
     medical_notes = db.Column(db.Text)
     current_location = db.Column(db.String(255))
+    battery_level = db.Column(db.String(10))
+    sos_category = db.Column(db.String(50), default="General")
     contacts = db.relationship('EmergencyContact', backref='owner', lazy=True)
 
 class EmergencyContact(db.Model):
@@ -135,8 +138,11 @@ def profile(current_user):
 def update_location(current_user):
     data = request.get_json()
     new_location = data.get("location")
+    battery = data.get("battery")
     if new_location:
         current_user.current_location = new_location
+        if battery:
+            current_user.battery_level = battery
         db.session.commit()
         return jsonify({"status": "Updated"})
     return jsonify({"status": "Error"}), 400
@@ -183,7 +189,7 @@ def upload_evidence(current_user):
                     clean_phone = str(contact.phone).strip()
                     if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
                     client.messages.create(
-                        body=f"🎙️ *Audio Ready*: {evidence_url}\n📍 *Live Tracking*: {tracking_url}",
+                        body=f"🎙️ *Audio Evidence Ready*\n\n{evidence_url}\n\n🛰️ *Updated Tracking*:\n{tracking_url}",
                         from_=TWILIO_FROM,
                         to=f"whatsapp:{clean_phone}"
                     )
@@ -199,7 +205,22 @@ def live_track(user_id):
 def get_location(user_id):
     user = db.session.get(User, user_id)
     if user:
-        return jsonify({"location": user.current_location, "full_name": user.full_name})
+        # Get latest audio file for this user (sorted by actual creation time)
+        latest_audio = None
+        if os.path.exists(app.config['UPLOAD_FOLDER']):
+            files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) if f.startswith(f"sos_{user_id}_")]
+            if files:
+                # Sort by full path creation time to get the absolute latest
+                files.sort(key=lambda x: os.path.getctime(os.path.join(app.config['UPLOAD_FOLDER'], x)), reverse=True)
+                latest_audio = f"/uploads/{files[0]}"
+
+        return jsonify({
+            "location": user.current_location, 
+            "full_name": user.full_name,
+            "battery": user.battery_level,
+            "latest_audio": latest_audio,
+            "category": getattr(user, 'sos_category', 'General') # Safe access
+        })
     return jsonify({"error": "Not found"}), 404
 
 @app.route('/uploads/<filename>')
@@ -212,8 +233,13 @@ def send_alert(current_user):
     try:
         data = request.get_json(silent=True) or {}
         location = data.get("location")
+        category = data.get("category", "General")
+        
         if not location:
             return jsonify({"status": "❌ Location missing"}), 400
+
+        current_user.sos_category = category
+        db.session.commit()
 
         config = get_env_config()
         tracking_url = f"http://{request.host}/track/{current_user.id}"
@@ -232,10 +258,26 @@ def send_alert(current_user):
                             msg = EmailMessage()
                             msg["From"] = EMAIL
                             msg["To"] = contact.email
-                            msg["Subject"] = f"🚨 SOS: {current_user.full_name} NEEDS HELP"
-                            msg.set_content(f"URGENT: {current_user.full_name} has triggered an SOS.\n\nLocation: {location}\nLive Tracking: {tracking_url}")
+                            msg["Subject"] = f"🚨 {category.upper()} SOS: {current_user.full_name}"
+                            
+                            html_content = f"""
+                            <div style="background-color: #050505; color: #ffffff; padding: 40px; font-family: 'Helvetica', sans-serif; border-radius: 10px;">
+                                <h1 style="color: #ff3e3e; margin-bottom: 20px;">🚨 {category.upper()} EMERGENCY</h1>
+                                <p style="font-size: 18px;"><b>{current_user.full_name}</b> has triggered a <b>{category}</b> SOS signal.</p>
+                                <div style="background: #1a1a1a; padding: 20px; border-left: 4px solid #ff3e3e; margin: 20px 0;">
+                                    <p><b>Location:</b> {location}</p>
+                                </div>
+                                <a href="{tracking_url}" style="background-color: #ff3e3e; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 20px;">
+                                    VIEW LIVE COMMAND CENTER
+                                </a>
+                                <p style="color: #888; font-size: 12px; margin-top: 30px;">
+                                    This is an automated emergency alert from the Guardian Elite Safety System.
+                                </p>
+                            </div>
+                            """
+                            msg.add_alternative(html_content, subtype="html")
                             server.send_message(msg)
-                            print(f"✅ Email Sent to {contact.email}")
+                            print(f"✅ HTML Email Sent to {contact.email}")
             except Exception as e: 
                 print(f"❌ Email System Error: {e}")
 
@@ -252,7 +294,7 @@ def send_alert(current_user):
                         if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
                         print(f"🟢 Attempting WhatsApp to: {clean_phone}")
                         client.messages.create(
-                            body=f"🔴 EMERGENCY: {current_user.full_name} needs help!\n📍 Location: {location}\n🛰️ Live Tracking: {tracking_url}",
+                            body=f"🔴 *{category.upper()} EMERGENCY: {current_user.full_name.upper()}*\n\n📍 *Current Location*:\n{location}\n\n🛰️ *Live Tracking Dashboard*:\n{tracking_url}",
                             from_=TWILIO_FROM,
                             to=f"whatsapp:{clean_phone}"
                         )
@@ -264,5 +306,15 @@ def send_alert(current_user):
     except Exception as e:
         return jsonify({"status": f"❌ Error: {str(e)}"}), 500
 
-if __name__ == "__main__":
-    app.run(debug=True, host='0.0.0.0', port=5000)
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+        # Migration check for sos_category column
+        from sqlalchemy import inspect
+        inspector = inspect(db.engine)
+        if 'sos_category' not in [c['name'] for c in inspector.get_columns('user')]:
+            with db.engine.connect() as conn:
+                from sqlalchemy import text
+                conn.execute(text('ALTER TABLE user ADD COLUMN sos_category VARCHAR(50) DEFAULT "General"'))
+                conn.commit()
+    app.run(host='0.0.0.0', port=5000, debug=True)

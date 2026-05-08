@@ -4,12 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import 'package:geolocator/geolocator.dart';
+import 'package:geolocator/geolocator.dart' hide AndroidResource;
 import 'package:record/record.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:torch_light/torch_light.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:battery_plus/battery_plus.dart';
+import 'package:flutter_background/flutter_background.dart';
 import 'auth_provider.dart';
 import 'api_service.dart';
 
@@ -20,7 +22,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin {
+class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   late AnimationController _pulseController;
   bool _isHolding = false;
   double _progress = 0;
@@ -30,6 +32,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   
   bool _isSirenOn = false;
   bool _isStrobeOn = false;
+  bool _isStealthMode = false;
+  String _selectedCategory = "General";
   Timer? _strobeTimer;
   final AudioPlayer _audioPlayer = AudioPlayer();
   
@@ -37,11 +41,16 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   final String sirenUrl = "https://www.soundjay.com/emergency/sounds/emergency-siren-01.mp3";
   
   final AudioRecorder _recorder = AudioRecorder();
-  static const platform = MethodChannel('com.emergency.app/sms');
+  final Battery _battery = Battery();
+  int _batteryLevel = 100;
+  StreamSubscription? _batterySubscription;
+  bool _isUpdatingCategory = false;
+  static const platform = MethodChannel('com.emergency.app/hardware');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -49,6 +58,33 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     
     _audioPlayer.setReleaseMode(ReleaseMode.loop);
     _checkAndRequestPermissions();
+    _initBackgroundExecution();
+    _initBatteryMonitoring();
+
+    // Listen for hardware SOS (Triple press volume)
+    platform.setMethodCallHandler((call) async {
+      if (call.method == "triggerHardwareSOS") {
+        _triggerEmergency();
+      }
+    });
+  }
+
+  void _initBatteryMonitoring() {
+    _battery.batteryLevel.then((level) {
+      if (mounted) setState(() => _batteryLevel = level);
+    });
+    _batterySubscription = _battery.onBatteryStateChanged.listen((_) async {
+      final level = await _battery.batteryLevel;
+      if (mounted) setState(() => _batteryLevel = level);
+    });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Re-check permissions automatically when returning from settings
+      _checkAndRequestPermissions();
+    }
   }
 
   Future<void> _checkAndRequestPermissions() async {
@@ -59,20 +95,40 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       openAppSettings();
     }
     
-    await [
+    Map<Permission, PermissionStatus> statuses = await [
       Permission.location,
       Permission.sms,
       Permission.microphone,
       Permission.camera,
     ].request();
+
+    if (statuses[Permission.sms]!.isPermanentlyDenied || statuses[Permission.sms]!.isDenied) {
+      // If denied, take them to settings automatically
+      await openAppSettings();
+    }
+  }
+
+  Future<void> _initBackgroundExecution() async {
+    const config = FlutterBackgroundAndroidConfig(
+      notificationTitle: "Guardian Elite Protection",
+      notificationText: "Background monitoring active for your safety",
+      notificationImportance: AndroidNotificationImportance.normal,
+      notificationIcon: AndroidResource(name: 'ic_launcher', defType: 'mipmap'),
+    );
+    bool hasPermissions = await FlutterBackground.initialize(androidConfig: config);
+    if (hasPermissions) {
+      await FlutterBackground.enableBackgroundExecution();
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _timer?.cancel();
     _trackingTimer?.cancel();
     _strobeTimer?.cancel();
+    _batterySubscription?.cancel();
     _audioPlayer.dispose();
     _recorder.dispose();
     super.dispose();
@@ -83,9 +139,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       if (_isSirenOn) {
         await _audioPlayer.stop();
       } else {
-        // Set volume to max
+        // Set volume to max for emergency
         await _audioPlayer.setVolume(1.0);
-        await _audioPlayer.play(UrlSource(sirenUrl));
+        await _audioPlayer.play(UrlSource(sirenUrl), mode: PlayerMode.lowLatency);
       }
       setState(() => _isSirenOn = !_isSirenOn);
     } catch (e) {
@@ -114,6 +170,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   void _startHolding() {
+    HapticFeedback.mediumImpact();
     setState(() {
       _isHolding = true;
       _progress = 0;
@@ -125,6 +182,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         if (_progress >= 1.0) {
           _progress = 1.0;
           _timer?.cancel();
+          HapticFeedback.heavyImpact();
           _triggerEmergency();
         }
       });
@@ -148,8 +206,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       final auth = context.read<AuthProvider>();
       
       // AUTO-ACTIVATE
-      if (!_isStrobeOn) _toggleStrobe();
-      if (!_isSirenOn) _toggleSiren();
+      if (!_isStealthMode) {
+        if (!_isStrobeOn) _toggleStrobe();
+        if (!_isSirenOn) _toggleSiren();
+      } else {
+        // In stealth mode, we stay quiet but start tracking
+        setState(() => _status = "🛡️ STEALTH SOS ACTIVE");
+      }
 
       // 1. ATTEMPT SMS
       setState(() => _status = "🚨 SENDING SMS...");
@@ -168,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
 
       // 2. ATTEMPT EMAIL & WHATSAPP
       setState(() => _status = "📧 SERVER ALERTS...");
-      await ApiService.sendAlert(auth.token!, locationUrl);
+      await ApiService.sendAlert(auth.token!, locationUrl, category: _selectedCategory);
 
       // 3. START RECORDING
       setState(() => _status = "🎙️ RECORDING...");
@@ -186,7 +249,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       try {
         Position currentPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
         String currentUrl = "https://maps.google.com/?q=${currentPos.latitude},${currentPos.longitude}";
-        await ApiService.updateLocation(token, currentUrl);
+        
+        int level = _batteryLevel;
+        await ApiService.updateLocation(token, currentUrl, battery: level.toString());
       } catch (e) { print("Tracking error: $e"); }
     });
   }
@@ -218,127 +283,275 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
+    final bool isEmergencyActive = _status.contains("ACTIVE");
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Emergency Alert"),
-        actions: [
-          IconButton(onPressed: () => Navigator.pushNamed(context, '/profile'), icon: const Icon(Icons.person)),
-          IconButton(onPressed: auth.logout, icon: const Icon(Icons.logout)),
-        ],
-      ),
-      body: SingleChildScrollView(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 20),
-              Text("Logged in as ${auth.userName}", style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 30),
-              
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  _deterrentButton(
-                    icon: _isSirenOn ? Icons.volume_up : Icons.volume_off,
-                    label: "Siren",
-                    isActive: _isSirenOn,
-                    color: Colors.blue,
-                    onTap: _toggleSiren,
-                  ),
-                  const SizedBox(width: 20),
-                  _deterrentButton(
-                    icon: _isStrobeOn ? Icons.flash_on : Icons.flash_off,
-                    label: "Strobe",
-                    isActive: _isStrobeOn,
-                    color: Colors.orange,
-                    onTap: _toggleStrobe,
-                  ),
+      backgroundColor: const Color(0xFF050505),
+      body: _isStealthMode && isEmergencyActive 
+        ? const Center(child: Text("🛡️ System Optimized", style: TextStyle(color: Colors.black, fontSize: 1))) // Ultra-Stealth
+        : Container(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: Alignment.topRight,
+                radius: 1.5,
+                colors: [
+                  Colors.red.withOpacity(0.05),
+                  const Color(0xFF050505),
                 ],
               ),
-              
-              const SizedBox(height: 50),
-              
-              GestureDetector(
-                onLongPressStart: (_) => _startHolding(),
-                onLongPressEnd: (_) => _stopHolding(),
-                child: Stack(
-                  alignment: Alignment.center,
+            ),
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Column(
                   children: [
-                    AnimatedBuilder(
-                      animation: _pulseController,
-                      builder: (context, child) {
-                        return Container(
-                          width: 220 + (_pulseController.value * 30),
-                          height: 220 + (_pulseController.value * 30),
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            color: Colors.redAccent.withOpacity(0.2 * (1 - _pulseController.value)),
-                          ),
-                        );
-                      },
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text("GUARDIAN", style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.w900, letterSpacing: 4)),
+                            Text("ELITE", style: TextStyle(color: Colors.redAccent.shade400, fontSize: 24, fontWeight: FontWeight.w900, letterSpacing: 1)),
+                          ],
+                        ),
+                        Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.manage_accounts, color: Colors.white, size: 28),
+                              onPressed: () => Navigator.pushNamed(context, '/profile'),
+                            ),
+                            const SizedBox(width: 8),
+                            _statusBadge(),
+                          ],
+                        ),
+                      ],
                     ),
-                    SizedBox(
-                      width: 200,
-                      height: 200,
-                      child: CircularProgressIndicator(
-                        value: _progress,
-                        strokeWidth: 10,
-                        color: Colors.white,
-                        backgroundColor: Colors.red.withOpacity(0.2),
-                      ),
-                    ),
-                    Container(
-                      width: 180,
-                      height: 180,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        gradient: const RadialGradient(colors: [Colors.redAccent, Colors.red]),
-                        boxShadow: [BoxShadow(color: Colors.red.withOpacity(0.5), blurRadius: 20, spreadRadius: 5)],
-                      ),
-                      child: const Center(child: Text("SOS", style: TextStyle(fontSize: 48, fontWeight: FontWeight.bold, color: Colors.white))),
-                    ),
+                    const SizedBox(height: 30),
+                    _telemetryGrid(),
+                    const SizedBox(height: 40),
+                    const Text("SELECT EMERGENCY TYPE", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
+                    const SizedBox(height: 16),
+                    _categorySelector(),
+                    const Spacer(),
+                    _mainSOSButton(),
+                    const Spacer(),
+                    _controlDock(),
+                    const SizedBox(height: 30),
                   ],
                 ),
               ),
-              const SizedBox(height: 40),
-              Text(
-                _status,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 18, 
-                  fontWeight: FontWeight.bold, 
-                  color: _status.contains("✅") ? Colors.greenAccent : Colors.redAccent
-                ),
-              ),
-              const SizedBox(height: 10),
-              const Text("Hold button for 3 seconds", style: TextStyle(color: Colors.grey)),
-              const SizedBox(height: 50),
-            ],
+            ),
           ),
-        ),
+    );
+  }
+
+  Widget _statusBadge() {
+    bool isActive = _status.contains("ACTIVE");
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: isActive ? Colors.red.withOpacity(0.1) : Colors.green.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: isActive ? Colors.redAccent : Colors.greenAccent, width: 1),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 8, height: 8,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: isActive ? Colors.redAccent : Colors.greenAccent,
+              boxShadow: [BoxShadow(color: isActive ? Colors.red : Colors.green, blurRadius: 4)],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            isActive ? "SOS ACTIVE" : "SECURED",
+            style: TextStyle(color: isActive ? Colors.redAccent : Colors.greenAccent, fontSize: 10, fontWeight: FontWeight.w900),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _deterrentButton({required IconData icon, required String label, required bool isActive, required Color color, required VoidCallback onTap}) {
+  Widget _telemetryGrid() {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _telemetryItem(Icons.battery_charging_full, "BATTERY", "$_batteryLevel%"),
+          _verticalDivider(),
+          _telemetryItem(Icons.gps_fixed, "GPS", "LOCKED"),
+          _verticalDivider(),
+          _telemetryItem(Icons.security_update_good, "SIGNAL", "SECURE"),
+        ],
+      ),
+    );
+  }
+
+  Widget _telemetryItem(IconData icon, String label, String value) {
     return Column(
       children: [
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: isActive ? color : color.withOpacity(0.1),
-              shape: BoxShape.circle,
-              border: Border.all(color: color, width: 2),
-            ),
-            child: Icon(icon, color: isActive ? Colors.white : color, size: 30),
-          ),
-        ),
+        Icon(icon, color: Colors.white.withOpacity(0.5), size: 18),
         const SizedBox(height: 8),
-        Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+        Text(label, style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 8, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w800, fontFamily: 'JetBrains Mono')),
       ],
+    );
+  }
+
+  Widget _verticalDivider() {
+    return Container(height: 30, width: 1, color: Colors.white.withOpacity(0.05));
+  }
+
+  Widget _categorySelector() {
+    List<Map<String, dynamic>> categories = [
+      {"name": "General", "icon": Icons.notification_important, "color": Colors.grey},
+      {"name": "Security", "icon": Icons.security, "color": Colors.blue},
+      {"name": "Medical", "icon": Icons.medical_services, "color": Colors.green},
+      {"name": "Fire", "icon": Icons.local_fire_department, "color": Colors.orange},
+    ];
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: categories.map((cat) {
+        bool isSelected = _selectedCategory == cat['name'];
+        return GestureDetector(
+          onTap: () {
+            if (!_isUpdatingCategory) {
+              setState(() {
+                _selectedCategory = cat['name'];
+                _isUpdatingCategory = true;
+              });
+              
+              if (_status.contains("ACTIVE")) {
+                final auth = context.read<AuthProvider>();
+                Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low, timeLimit: const Duration(seconds: 5)).then((pos) {
+                  final url = "https://maps.google.com/?q=${pos.latitude},${pos.longitude}";
+                  ApiService.updateLocation(auth.token!, url, category: cat['name']).then((_) {
+                    setState(() {
+                      _status = "🛡️ ${cat['name'].toUpperCase()} SOS ACTIVE";
+                      _isUpdatingCategory = false;
+                    });
+                  });
+                }).catchError((_) => setState(() => _isUpdatingCategory = false));
+              } else {
+                setState(() => _isUpdatingCategory = false);
+              }
+            }
+          },
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 200),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: isSelected ? cat['color'].withOpacity(0.2) : Colors.white.withOpacity(0.02),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: isSelected ? cat['color'] : Colors.white.withOpacity(0.05), width: 1.5),
+            ),
+            child: Icon(cat['icon'], color: isSelected ? cat['color'] : Colors.white.withOpacity(0.3), size: 24),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _mainSOSButton() {
+    return GestureDetector(
+      onLongPressStart: (_) => _startHolding(),
+      onLongPressEnd: (_) => _stopHolding(),
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          AnimatedBuilder(
+            animation: _pulseController,
+            builder: (context, child) {
+              return Container(
+                width: 260 + (_pulseController.value * 40),
+                height: 260 + (_pulseController.value * 40),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.red.withOpacity(0.15 * (1 - _pulseController.value)), width: 2),
+                ),
+              );
+            },
+          ),
+          SizedBox(
+            width: 220,
+            height: 220,
+            child: CircularProgressIndicator(
+              value: _progress,
+              strokeWidth: 4,
+              color: Colors.redAccent,
+              backgroundColor: Colors.white.withOpacity(0.05),
+            ),
+          ),
+          Container(
+            width: 190,
+            height: 190,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: const Color(0xFF0A0A0A),
+              border: Border.all(color: Colors.redAccent.withOpacity(0.3), width: 2),
+              boxShadow: [
+                BoxShadow(color: Colors.red.withOpacity(0.2), blurRadius: 40, spreadRadius: 10),
+              ],
+            ),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text("SOS", style: TextStyle(color: Colors.white, fontSize: 56, fontWeight: FontWeight.w900, letterSpacing: -2)),
+                  Text(_isHolding ? "HOLDING..." : "PRESS & HOLD", style: TextStyle(color: Colors.redAccent.withOpacity(0.6), fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 1)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _controlDock() {
+    return Container(
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.03),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.white.withOpacity(0.05)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _dockItem(Icons.volume_up, _isSirenOn, Colors.blue, _toggleSiren),
+          _dockItem(Icons.flash_on, _isStrobeOn, Colors.orange, _toggleStrobe),
+          _dockItem(Icons.visibility_off, _isStealthMode, Colors.purple, () => setState(() => _isStealthMode = !_isStealthMode)),
+        ],
+      ),
+    );
+  }
+
+  Widget _dockItem(IconData icon, bool isActive, Color color, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        margin: const EdgeInsets.symmetric(horizontal: 4),
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: isActive ? color : Colors.transparent,
+          shape: BoxShape.circle,
+        ),
+        child: Icon(icon, color: isActive ? Colors.white : Colors.white.withOpacity(0.3), size: 24),
+      ),
     );
   }
 }

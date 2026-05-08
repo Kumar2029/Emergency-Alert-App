@@ -1,121 +1,255 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <title>SOS COMMAND CENTER</title>
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Guardian Elite | SOS Command Center</title>
+    
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <style>
-        :root { --danger: #ff3333; --bg: #0a0a0b; --card: #16161a; }
-        body { margin: 0; padding: 0; font-family: 'Inter', sans-serif; background: var(--bg); color: white; overflow: hidden; }
-        
-        #map { height: 100vh; width: 100vw; position: absolute; top: 0; z-index: 1; filter: grayscale(0.5) contrast(1.2) invert(0.9) hue-rotate(180deg); }
-        
-        .overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10; display: flex; flex-direction: column; justify-content: space-between; padding: 20px; box-sizing: border-box; }
-        
-        .glass { background: rgba(22, 22, 26, 0.8); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); border-radius: 15px; pointer-events: all; padding: 20px; }
-        
-        .top-bar { display: flex; justify-content: space-between; align-items: center; }
-        .status-dot { width: 10px; height: 10px; background: var(--danger); border-radius: 50%; display: inline-block; margin-right: 10px; box-shadow: 0 0 10px var(--danger); animation: blink 1s infinite; }
-        
-        .log-panel { width: 300px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 12px; color: #aaa; }
-        .log-entry { margin-bottom: 5px; border-left: 2px solid var(--danger); padding-left: 10px; }
-        
-        .user-card { display: flex; align-items: center; gap: 15px; }
-        .user-avatar { width: 50px; height: 50px; background: linear-gradient(45deg, var(--danger), #ff8c00); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 20px; }
-        
-        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
-        
-        /* Custom Marker Pulse */
-        .pulse-marker { width: 20px; height: 20px; background: var(--danger); border-radius: 50%; border: 3px solid white; box-shadow: 0 0 20px var(--danger); }
-        .pulse-marker::after { content: ''; position: absolute; top: -10px; left: -10px; width: 40px; height: 40px; border: 2px solid var(--danger); border-radius: 50%; animation: ring 2s ease-out infinite; }
-        @keyframes ring { 0% { transform: scale(0.5); opacity: 1; } 100% { transform: scale(2.5); opacity: 0; } }
-    </style>
+    
+    <!-- Guardian Custom CSS -->
+    <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
 <body>
 
-<div id="map"></div>
+    <!-- Map Layer -->
+    <div id="map"></div>
 
-<div class="overlay">
-    <div class="top-bar glass">
-        <div class="user-card">
-            <div class="user-avatar" id="avatar">?</div>
-            <div>
-                <div style="font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px;">Target Individual</div>
-                <div style="font-size: 18px; font-weight: bold;" id="userName">Tracking...</div>
-            </div>
-        </div>
-        <div>
-            <span class="status-dot"></span>
-            <span style="font-weight: bold; letter-spacing: 2px;">LIVE SOS</span>
-        </div>
+    <!-- Radar Sweep Effect -->
+    <div class="radar-overlay">
+        <div class="radar-sweep"></div>
     </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: flex-end;">
-        <div class="glass log-panel" id="logPanel">
-            <div class="log-entry">System initialized...</div>
-            <div class="log-entry">Awaiting GPS lock...</div>
-        </div>
+    <!-- UI Overlay -->
+    <div class="dashboard-overlay">
         
-        <div class="glass" style="text-align: right;">
-            <div style="font-size: 10px; color: #888;">COORDINATES</div>
-            <div id="coords" style="font-family: monospace; font-size: 14px;">0.0000, 0.0000</div>
-        </div>
+        <!-- Header -->
+        <header class="header fade-in" style="animation-delay: 0.1s;">
+            <div class="logo-section">
+                <div style="font-size: 24px; font-weight: 800; letter-spacing: -1px;">GUARDIAN<span style="color: var(--accent-red)">ELITE</span></div>
+                <div id="categoryBadge" style="font-size: 12px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">GENERAL</div>
+            </div>
+            
+            <div class="sos-indicator">
+                <span class="status-pulse"></span>
+                ACTIVE SOS SIGNAL
+            </div>
+        </header>
+
+        <!-- Left Sidebar: Victim Profile -->
+        <aside class="sidebar-left">
+            <div class="glass-panel victim-card fade-in" style="animation-delay: 0.2s;">
+                <div class="avatar-large" id="avatar">?</div>
+                <div>
+                    <h2 id="userName" style="font-size: 24px; font-weight: 800;">Tracking...</h2>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">ID: #SOS-{{ user_id }}</p>
+                </div>
+                
+                <div style="width: 100%; height: 1px; background: var(--glass-border); margin: 8px 0;"></div>
+                
+                <div class="location-info">
+                    <div class="info-label">Current Coordinates</div>
+                    <div class="info-value" id="coords">0.0000, 0.0000</div>
+                </div>
+                
+                <div class="location-info" style="margin-top: 16px;">
+                    <div class="info-label">Signal Status</div>
+                    <div class="info-value" style="color: #4ade80;">ENCRYPTED • STRONG</div>
+                </div>
+
+                <div class="location-info" style="margin-top: 16px;">
+                    <div class="info-label">Device Battery</div>
+                    <div class="info-value" id="battery">--%</div>
+                </div>
+            </div>
+
+            <div class="glass-panel fade-in" style="animation-delay: 0.3s; padding: 20px;">
+                <button onclick="window.location.reload()" style="width: 100%; background: var(--accent-red); border: none; color: white; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: transform 0.2s;">
+                    REFRESH COMMAND LINK
+                </button>
+            </div>
+        </aside>
+
+        <!-- Center: Empty for map visibility -->
+        <main class="sidebar-center"></main>
+
+        <!-- Right Sidebar: Evidence & Logs -->
+        <aside class="sidebar-right">
+            <!-- Audio Evidence Card -->
+            <div class="glass-panel audio-card fade-in" style="animation-delay: 0.4s;">
+                <div class="info-label">Audio Evidence (Latest)</div>
+                <div class="waveform-container" id="waveform">
+                    <!-- Bars generated via JS -->
+                </div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
+                    <div style="font-size: 12px; color: var(--text-secondary);">15s Capture</div>
+                    <button id="playAudio" style="background: white; border: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                        PLAY CLIP
+                    </button>
+                </div>
+            </div>
+
+            <!-- Activity Logs -->
+            <div class="glass-panel log-container fade-in" style="animation-delay: 0.5s;">
+                <div class="info-label" style="margin-bottom: 12px;">Operational Log</div>
+                <div id="logPanel">
+                    <div class="log-item"><span class="log-time">SYS</span> Command center initialized</div>
+                    <div class="log-item"><span class="log-time">GPS</span> Awaiting satellite lock...</div>
+                </div>
+            </div>
+        </aside>
+
     </div>
-</div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script>
-    const userId = {{ user_id }};
-    let map = L.map('map', { zoomControl: false }).setView([0, 0], 2);
-    let marker;
-    let path = L.polyline([], { color: '#ff3333', weight: 3, dashArray: '10, 10', opacity: 0.5 }).addTo(map);
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const userId = {{ user_id }};
+        let map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0, 0], 2);
+        let marker;
+        let amenityMarkers = L.layerGroup().addTo(map);
+        let path = L.polyline([], { 
+            color: '#ff3e3e', 
+            weight: 4, 
+            opacity: 0.6,
+            dashArray: '8, 8'
+        }).addTo(map);
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+        // Dark-mode Tile Layer
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-    function addLog(msg) {
-        const panel = document.getElementById('logPanel');
-        const entry = document.createElement('div');
-        entry.className = 'log-entry';
-        entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
-        panel.prepend(entry);
-    }
+        function addLog(msg, type = "GPS") {
+            const panel = document.getElementById('logPanel');
+            const entry = document.createElement('div');
+            entry.className = 'log-item';
+            entry.innerHTML = `<span class="log-time">${type}</span> ${msg}`;
+            panel.prepend(entry);
+        }
 
-    function updateTracking() {
-        fetch(`/get_location/${userId}`)
-            .then(res => res.json())
-            .then(data => {
-                if (data.location) {
-                    const coords = data.location.split('q=')[1].split(',');
-                    const lat = parseFloat(coords[0]);
-                    const lng = parseFloat(coords[1]);
-                    const pos = [lat, lng];
+        // Generate Mock Waveform
+        const waveform = document.getElementById('waveform');
+        for (let i = 0; i < 20; i++) {
+            const bar = document.createElement('div');
+            bar.className = 'waveform-bar';
+            bar.style.animationDelay = `${i * 0.1}s`;
+            waveform.appendChild(bar);
+        }
 
-                    document.getElementById('coords').innerText = `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-                    document.getElementById('userName').innerText = data.full_name;
-                    document.getElementById('avatar').innerText = data.full_name[0];
+        async function fetchNearbyServices(lat, lng) {
+            const query = `
+                [out:json];
+                (
+                  node["amenity"="hospital"](around:5000, ${lat}, ${lng});
+                  node["amenity"="police"](around:5000, ${lat}, ${lng});
+                  node["amenity"="fire_station"](around:5000, ${lat}, ${lng});
+                );
+                out body;
+            `;
+            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+            
+            try {
+                const res = await fetch(url);
+                const data = await res.json();
+                amenityMarkers.clearLayers();
+                
+                data.elements.forEach(el => {
+                    const iconType = el.tags.amenity === 'police' ? '🚓' : (el.tags.amenity === 'hospital' ? '🏥' : '🔥');
+                    const color = el.tags.amenity === 'police' ? '#3b82f6' : '#ef4444';
+                    
+                    const icon = L.divIcon({
+                        className: 'amenity-marker',
+                        html: `<div style="background: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px;">${iconType}</div>`,
+                        iconSize: [30, 30]
+                    });
+                    
+                    L.marker([el.lat, el.lon], { icon: icon })
+                        .bindPopup(`<b>${el.tags.name || 'Emergency Service'}</b><br>${el.tags.amenity.toUpperCase()}`)
+                        .addTo(amenityMarkers);
+                });
+                addLog(`Found ${data.elements.length} nearby emergency units.`, "SYS");
+            } catch (e) { console.error("Overpass error", e); }
+        }
 
-                    if (!marker) {
-                        const icon = L.divIcon({ className: 'pulse-marker', iconSize: [20, 20] });
-                        marker = L.marker(pos, { icon: icon }).addTo(map);
-                        map.setView(pos, 17);
-                        addLog("Target located. Signal strong.");
-                    } else {
-                        // Smooth move (simple version for demo)
-                        marker.setLatLng(pos);
-                        map.panTo(pos);
-                        if (path.getLatLngs().length === 0 || path.getLatLngs().slice(-1)[0].lat !== lat) {
-                            path.addLatLng(pos);
-                            addLog("Location updated. Movement detected.");
+        let latestAudioUrl = null;
+        const audioPlayer = new Audio();
+
+        function updateTracking() {
+            if (map) map.invalidateSize(); // Force map redraw
+            fetch(`/get_location/${userId}`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.location) {
+                        const coords = data.location.split('q=')[1].split(',');
+                        const lat = parseFloat(coords[0]);
+                        const lng = parseFloat(coords[1]);
+                        const pos = [lat, lng];
+
+                        document.getElementById('coords').innerText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+                        document.getElementById('userName').innerText = data.full_name;
+                        document.getElementById('avatar').innerText = data.full_name[0];
+                        document.getElementById('battery').innerText = data.battery ? `${data.battery}%` : 'Unknown';
+                        
+                        const catBadge = document.getElementById('categoryBadge');
+                        catBadge.innerText = data.category.toUpperCase();
+                        if (data.category === 'Medical') catBadge.style.color = '#4ade80';
+                        else if (data.category === 'Security') catBadge.style.color = '#3b82f6';
+                        else if (data.category === 'Fire') catBadge.style.color = '#f97316';
+                        else catBadge.style.color = 'var(--text-secondary)';
+                        latestAudioUrl = data.latest_audio;
+                        
+                        const playBtn = document.getElementById('playAudio');
+                        if (latestAudioUrl) {
+                            playBtn.style.opacity = "1";
+                            playBtn.innerText = "PLAY CLIP";
+                        } else {
+                            playBtn.style.opacity = "0.5";
+                            playBtn.innerText = "NO AUDIO";
+                        }
+                        
+                        if (data.battery && parseInt(data.battery) < 20) {
+                            document.getElementById('battery').style.color = 'var(--accent-red)';
+                        } else {
+                            document.getElementById('battery').style.color = '#4ade80';
+                        }
+
+                        if (!marker) {
+                            const icon = L.divIcon({ className: 'pulse-marker-elite', iconSize: [24, 24] });
+                            marker = L.marker(pos, { icon: icon }).addTo(map);
+                            map.setView(pos, 17);
+                            addLog("Target signal locked. Tracking engaged.", "SYS");
+                            fetchNearbyServices(lat, lng); // Initial scan
+                        } else {
+                            marker.setLatLng(pos);
+                            map.panTo(pos);
+                            const lastPos = path.getLatLngs().slice(-1)[0];
+                            if (!lastPos || Math.abs(lastPos.lat - lat) > 0.0001 || Math.abs(lastPos.lng - lng) > 0.0001) {
+                                path.addLatLng(pos);
+                                addLog(`Movement detected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+                                fetchNearbyServices(lat, lng); // Re-scan on movement
+                            }
                         }
                     }
-                }
-            })
-            .catch(err => addLog("Lost signal. Retrying..."));
-    }
+                })
+                .catch(err => addLog("Signal intermittent. Re-scanning...", "ERR"));
+        }
 
-    setInterval(updateTracking, 5000); // 5 second polling for "more dynamic" feel
-    updateTracking();
-</script>
+        document.getElementById('playAudio').addEventListener('click', () => {
+            if (latestAudioUrl) {
+                audioPlayer.src = latestAudioUrl;
+                audioPlayer.play();
+                addLog("Playing audio evidence...", "SYS");
+            }
+        });
 
+        setInterval(updateTracking, 5000);
+        updateTracking();
+    </script>
 </body>
 </html>
+
