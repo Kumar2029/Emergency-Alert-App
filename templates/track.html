@@ -179,17 +179,33 @@
         let latestAudioUrl = null;
         const audioPlayer = new Audio();
 
+        let trackingInterval = setInterval(updateTracking, 3000);
+        let isSafe = false;
+
         function updateTracking() {
-            if (map) map.invalidateSize(); // Force map redraw
+            if (isSafe) return;
+            if (map) map.invalidateSize();
             fetch(`/get_location/${userId}`)
                 .then(res => res.json())
                 .then(data => {
+                    const sosIndicator = document.querySelector('.sos-indicator');
+                    if (data.is_active === false) {
+                        isSafe = true;
+                        clearInterval(trackingInterval);
+                        sosIndicator.innerHTML = '<span style="color: #4ade80;">🟢 TARGET SECURED / SAFE</span>';
+                        sosIndicator.style.background = 'rgba(74, 222, 128, 0.1)';
+                        sosIndicator.style.border = '1px solid #4ade80';
+                        addLog("User verified safe. Monitoring suspended.", "SYS");
+                        return;
+                    }
+
                     if (data.location) {
                         const coords = data.location.split('q=')[1].split(',');
                         const lat = parseFloat(coords[0]);
                         const lng = parseFloat(coords[1]);
                         const pos = [lat, lng];
-
+                        
+                        // ... rest of update logic ...
                         document.getElementById('coords').innerText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
                         document.getElementById('userName').innerText = data.full_name;
                         document.getElementById('avatar').innerText = data.full_name[0];
@@ -223,7 +239,7 @@
                             marker = L.marker(pos, { icon: icon }).addTo(map);
                             map.setView(pos, 17);
                             addLog("Target signal locked. Tracking engaged.", "SYS");
-                            fetchNearbyServices(lat, lng); // Initial scan
+                            fetchNearbyServices(lat, lng);
                         } else {
                             marker.setLatLng(pos);
                             map.panTo(pos);
@@ -231,12 +247,12 @@
                             if (!lastPos || Math.abs(lastPos.lat - lat) > 0.0001 || Math.abs(lastPos.lng - lng) > 0.0001) {
                                 path.addLatLng(pos);
                                 addLog(`Movement detected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
-                                fetchNearbyServices(lat, lng); // Re-scan on movement
+                                fetchNearbyServices(lat, lng);
                             }
                         }
                     }
                 })
-                .catch(err => addLog("Signal intermittent. Re-scanning...", "ERR"));
+                .catch(err => console.log("Polling..."));
         }
 
         document.getElementById('playAudio').addEventListener('click', () => {
@@ -247,7 +263,6 @@
             }
         });
 
-        setInterval(updateTracking, 5000);
         updateTracking();
     </script>
 </body>

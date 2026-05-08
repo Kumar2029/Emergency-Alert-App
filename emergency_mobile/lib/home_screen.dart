@@ -29,19 +29,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   Timer? _timer;
   Timer? _trackingTimer;
   String _status = "System Ready";
+  bool _isEmergencyInProgress = false; // New Robust Flag
   
-  bool _isSirenOn = false;
-  bool _isStrobeOn = false;
-  bool _isStealthMode = false;
   String _selectedCategory = "General";
-  Timer? _strobeTimer;
   final AudioPlayer _audioPlayer = AudioPlayer();
-  
-  // New reliable siren source (direct mp3)
-  final String sirenUrl = "https://www.soundjay.com/emergency/sounds/emergency-siren-01.mp3";
-  
   final AudioRecorder _recorder = AudioRecorder();
   final Battery _battery = Battery();
+  String _correctPin = "1234"; // Default
   int _batteryLevel = 100;
   StreamSubscription? _batterySubscription;
   bool _isUpdatingCategory = false;
@@ -51,6 +45,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _fetchCorrectPin();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -85,6 +80,19 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       // Re-check permissions automatically when returning from settings
       _checkAndRequestPermissions();
     }
+  }
+
+  Future<void> _fetchCorrectPin() async {
+    try {
+      final auth = context.read<AuthProvider>();
+      if (auth.token != null) {
+        final res = await ApiService.getProfile(auth.token!);
+        if (res.statusCode == 200) {
+          final data = jsonDecode(res.body);
+          if (mounted) setState(() => _correctPin = data['rescue_pin'] ?? "1234");
+        }
+      }
+    } catch (e) { print("PIN sync error: $e"); }
   }
 
   Future<void> _checkAndRequestPermissions() async {
@@ -127,46 +135,10 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     _pulseController.dispose();
     _timer?.cancel();
     _trackingTimer?.cancel();
-    _strobeTimer?.cancel();
     _batterySubscription?.cancel();
     _audioPlayer.dispose();
     _recorder.dispose();
     super.dispose();
-  }
-
-  Future<void> _toggleSiren() async {
-    try {
-      if (_isSirenOn) {
-        await _audioPlayer.stop();
-      } else {
-        // Set volume to max for emergency
-        await _audioPlayer.setVolume(1.0);
-        await _audioPlayer.play(UrlSource(sirenUrl), mode: PlayerMode.lowLatency);
-      }
-      setState(() => _isSirenOn = !_isSirenOn);
-    } catch (e) {
-      setState(() => _status = "⚠️ Siren Error: $e");
-    }
-  }
-
-  Future<void> _toggleStrobe() async {
-    try {
-      if (_isStrobeOn) {
-        _strobeTimer?.cancel();
-        await TorchLight.disableTorch();
-      } else {
-        _strobeTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) async {
-          try {
-            if (timer.tick % 2 == 0) {
-              await TorchLight.enableTorch();
-            } else {
-              await TorchLight.disableTorch();
-            }
-          } catch (e) { timer.cancel(); }
-        });
-      }
-      setState(() => _isStrobeOn = !_isStrobeOn);
-    } catch (e) { print("Strobe error: $e"); }
   }
 
   void _startHolding() {
@@ -199,53 +171,133 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   }
 
   Future<void> _triggerEmergency() async {
-    setState(() => _status = "🛰️ LOCATING...");
+    if (_isEmergencyInProgress) return; // Prevent double triggers
+    setState(() {
+      _status = "🛰️ LOCATING...";
+      _isEmergencyInProgress = true;
+    });
     try {
       Position pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       final locationUrl = "https://maps.google.com/?q=${pos.latitude},${pos.longitude}";
       final auth = context.read<AuthProvider>();
       
-      // AUTO-ACTIVATE
-      if (!_isStealthMode) {
-        if (!_isStrobeOn) _toggleStrobe();
-        if (!_isSirenOn) _toggleSiren();
-      } else {
-        // In stealth mode, we stay quiet but start tracking
-        setState(() => _status = "🛡️ STEALTH SOS ACTIVE");
-      }
-
-      // 1. ATTEMPT SMS
-      setState(() => _status = "🚨 SENDING SMS...");
+      // AUTO-ACTIVATE ALERTS
+      setState(() => _status = "🚨 SOS ACTIVE: SMS");
       final profileRes = await ApiService.getProfile(auth.token!);
       final profileData = jsonDecode(profileRes.body);
       final contacts = profileData['contacts'] as List;
 
       for (var contact in contacts) {
-        String phone = contact['phone']?.toString() ?? "";
-        if (phone.isNotEmpty) {
-          // Add a + if missing
-          if (!phone.startsWith('+')) phone = "+91$phone"; // Replace 91 with your code
-          platform.invokeMethod('sendSms', {"phone": phone, "message": "SOS! Help me: $locationUrl"});
-        }
+          String phone = contact['phone']?.toString().replaceAll(RegExp(r'\D'), '') ?? "";
+          if (phone.isNotEmpty) {
+            // Hardened Format: If it's 10 digits, it's likely Indian (+91)
+            String formattedPhone = phone;
+            if (phone.length == 10) formattedPhone = "+91$phone";
+            else if (!phone.startsWith('+')) formattedPhone = "+$phone";
+            
+            platform.invokeMethod('sendSms', {"phone": formattedPhone, "message": "SOS! Help me: $locationUrl"});
+          }
       }
 
       // 2. ATTEMPT EMAIL & WHATSAPP
-      setState(() => _status = "📧 SERVER ALERTS...");
+      setState(() => _status = "📧 SOS ACTIVE: ALERTS");
       await ApiService.sendAlert(auth.token!, locationUrl, category: _selectedCategory);
 
       // 3. START RECORDING
-      setState(() => _status = "🎙️ RECORDING...");
+      setState(() => _status = "🎙️ SOS ACTIVE: RECORDING");
       _startTracking(auth.token!);
       await _startRecordingEvidence(auth.token!);
       
     } catch (e) {
-      setState(() => _status = "❌ ERROR: $e");
+      setState(() {
+        _status = "❌ ERROR: $e";
+        _isEmergencyInProgress = false;
+      });
     }
+  }
+
+  void _showPinDialog() {
+    String inputPin = "";
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF151515),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20), side: BorderSide(color: Colors.white.withOpacity(0.1))),
+        title: const Text("RESCUE PIN REQUIRED", style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, letterSpacing: 1)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text("Enter your 4-digit security PIN to deactivate tracking.", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const SizedBox(height: 20),
+            TextField(
+              obscureText: true,
+              keyboardType: TextInputType.number,
+              maxLength: 4,
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: Colors.white, fontSize: 24, letterSpacing: 10),
+              decoration: InputDecoration(
+                counterText: "",
+                filled: true,
+                fillColor: Colors.white.withOpacity(0.05),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+              onChanged: (val) => inputPin = val,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text("CANCEL", style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              if (inputPin == _correctPin) { // Use Custom PIN
+                Navigator.pop(context);
+                _stopSOS();
+              } else {
+                HapticFeedback.vibrate();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("INVALID PIN. TRACKING CONTINUES."), backgroundColor: Colors.red),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent, foregroundColor: Colors.black),
+            child: const Text("VERIFY"),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _stopSOS() {
+    debugPrint("🛑 DEACTIVATING SOS: SHUTTING DOWN ALL SYSTEMS");
+    _trackingTimer?.cancel();
+    _trackingTimer = null;
+    _recorder.stop();
+    
+    // Notify Server
+    final auth = context.read<AuthProvider>();
+    if (auth.token != null) {
+      ApiService.deactivateSos(auth.token!);
+    }
+
+    setState(() {
+      _isEmergencyInProgress = false;
+      _status = "System Ready";
+      _progress = 0;
+    });
+    HapticFeedback.lightImpact();
   }
 
   void _startTracking(String token) {
     _trackingTimer?.cancel();
-    _trackingTimer = Timer.periodic(const Duration(seconds: 60), (timer) async {
+    _trackingTimer = Timer.periodic(const Duration(seconds: 10), (timer) async {
+      if (!_isEmergencyInProgress) {
+        timer.cancel();
+        return;
+      }
       try {
         Position currentPos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
         String currentUrl = "https://maps.google.com/?q=${currentPos.latitude},${currentPos.longitude}";
@@ -270,7 +322,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             setState(() => _status = "📤 UPLOADING...");
             final res = await ApiService.uploadEvidence(token, filePath);
             if (res.statusCode == 200) {
-              setState(() => _status = "✅ SOS COMPLETE");
+              setState(() => _status = "✅ SOS COMPLETE (SECURED)");
             } else {
               setState(() => _status = "⚠️ UPLOAD FAIL");
             }
@@ -283,13 +335,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthProvider>();
-    final bool isEmergencyActive = _status.contains("ACTIVE");
+    final bool isEmergencyActive = _isEmergencyInProgress;
 
     return Scaffold(
       backgroundColor: const Color(0xFF050505),
-      body: _isStealthMode && isEmergencyActive 
-        ? const Center(child: Text("🛡️ System Optimized", style: TextStyle(color: Colors.black, fontSize: 1))) // Ultra-Stealth
-        : Container(
+      body: Container(
             decoration: BoxDecoration(
               gradient: RadialGradient(
                 center: Alignment.topRight,
@@ -319,6 +369,13 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         Row(
                           children: [
                             IconButton(
+                              icon: const Icon(Icons.logout, color: Colors.white, size: 24),
+                              onPressed: () {
+                                context.read<AuthProvider>().logout();
+                                Navigator.pushReplacementNamed(context, '/login');
+                              },
+                            ),
+                            IconButton(
                               icon: const Icon(Icons.manage_accounts, color: Colors.white, size: 28),
                               onPressed: () => Navigator.pushNamed(context, '/profile'),
                             ),
@@ -336,8 +393,20 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     _categorySelector(),
                     const Spacer(),
                     _mainSOSButton(),
+                    if (isEmergencyActive) ...[
+                      const SizedBox(height: 20),
+                      ElevatedButton(
+                        onPressed: _showPinDialog,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.green.withOpacity(0.1),
+                          side: const BorderSide(color: Colors.greenAccent, width: 1),
+                          padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 15),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(100)),
+                        ),
+                        child: const Text("I AM SAFE / STOP TRACKING", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+                      ),
+                    ],
                     const Spacer(),
-                    _controlDock(),
                     const SizedBox(height: 30),
                   ],
                 ),
@@ -516,41 +585,6 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _controlDock() {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.03),
-        borderRadius: BorderRadius.circular(100),
-        border: Border.all(color: Colors.white.withOpacity(0.05)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          _dockItem(Icons.volume_up, _isSirenOn, Colors.blue, _toggleSiren),
-          _dockItem(Icons.flash_on, _isStrobeOn, Colors.orange, _toggleStrobe),
-          _dockItem(Icons.visibility_off, _isStealthMode, Colors.purple, () => setState(() => _isStealthMode = !_isStealthMode)),
-        ],
-      ),
-    );
-  }
-
-  Widget _dockItem(IconData icon, bool isActive, Color color, VoidCallback onTap) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.symmetric(horizontal: 4),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isActive ? color : Colors.transparent,
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: isActive ? Colors.white : Colors.white.withOpacity(0.3), size: 24),
       ),
     );
   }

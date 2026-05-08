@@ -15,20 +15,6 @@ app = Flask(__name__)
 CORS(app) 
 bcrypt = Bcrypt(app)
 
-# --- CONFIGURATION & ENV LOADING ---
-env_config = get_env_config()
-app.config['SECRET_KEY'] = env_config.get('SECRET_KEY', 'development-key-change-me')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-# Ensure upload folder exists
-UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
-
-db = SQLAlchemy(app)
-
 def get_env_config():
     """Manually parse .env to be 100% sure we get the latest values."""
     config = {}
@@ -44,6 +30,22 @@ def get_env_config():
         print(f"⚠️ Error reading .env: {e}")
     return config
 
+# --- CONFIGURATION & ENV LOADING ---
+env_config = get_env_config()
+# Using a 32-character secure default to silence InsecureKeyLengthWarning
+app.config['SECRET_KEY'] = env_config.get('SECRET_KEY', 'guardian-elite-secure-32-char-key-xyz-789')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Ensure upload folder exists
+UPLOAD_FOLDER = 'uploads'
+if not os.path.exists(UPLOAD_FOLDER):
+    os.makedirs(UPLOAD_FOLDER)
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+db = SQLAlchemy(app)
+
+
 # --- DATABASE MODELS ---
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -54,6 +56,8 @@ class User(db.Model):
     current_location = db.Column(db.String(255))
     battery_level = db.Column(db.String(10))
     sos_category = db.Column(db.String(50), default="General")
+    rescue_pin = db.Column(db.String(4), default="1234")
+    is_sos_active = db.Column(db.Boolean, default=False) # New Active Flag
     contacts = db.relationship('EmergencyContact', backref='owner', lazy=True)
 
 class EmergencyContact(db.Model):
@@ -94,7 +98,12 @@ def register():
     if User.query.filter_by(email=data['email']).first():
         return jsonify({"message": "User already exists"}), 400
     hashed_password = bcrypt.generate_password_hash(data['password']).decode('utf-8')
-    new_user = User(email=data['email'], password=hashed_password, full_name=data.get('full_name', ''))
+    new_user = User(
+        email=data['email'], 
+        password=hashed_password, 
+        full_name=data.get('full_name', ''),
+        rescue_pin=data.get('rescue_pin', '1234')
+    )
     db.session.add(new_user)
     db.session.commit()
     return jsonify({"message": "User created successfully"}), 201
@@ -118,6 +127,7 @@ def profile(current_user):
         data = request.get_json()
         current_user.full_name = data.get('full_name', current_user.full_name)
         current_user.medical_notes = data.get('medical_notes', current_user.medical_notes)
+        current_user.rescue_pin = data.get('rescue_pin', current_user.rescue_pin)
         if 'contacts' in data:
             EmergencyContact.query.filter_by(user_id=current_user.id).delete()
             for c in data['contacts']:
@@ -131,7 +141,13 @@ def profile(current_user):
         db.session.commit()
         return jsonify({"message": "Profile updated successfully"})
     contacts = [{"name": c.name, "email": c.email, "phone": c.phone} for c in current_user.contacts]
-    return jsonify({"full_name": current_user.full_name, "email": current_user.email, "medical_notes": current_user.medical_notes, "contacts": contacts})
+    return jsonify({
+        "full_name": current_user.full_name, 
+        "email": current_user.email, 
+        "medical_notes": current_user.medical_notes, 
+        "rescue_pin": current_user.rescue_pin,
+        "contacts": contacts
+    })
 
 @app.route("/update_location", methods=["POST"])
 @token_required
@@ -141,6 +157,7 @@ def update_location(current_user):
     battery = data.get("battery")
     if new_location:
         current_user.current_location = new_location
+        current_user.is_sos_active = True # Ensure active if location is being pushed
         if battery:
             current_user.battery_level = battery
         db.session.commit()
@@ -165,7 +182,7 @@ def upload_evidence(current_user):
     PASSWORD = config.get("ALERT_APP_PASSWORD", "").replace(" ", "").strip()
     if EMAIL and PASSWORD:
         try:
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                 server.starttls()
                 server.login(EMAIL, PASSWORD)
                 for contact in current_user.contacts:
@@ -219,7 +236,8 @@ def get_location(user_id):
             "full_name": user.full_name,
             "battery": user.battery_level,
             "latest_audio": latest_audio,
-            "category": getattr(user, 'sos_category', 'General') # Safe access
+            "category": getattr(user, 'sos_category', 'General'), # Safe access
+            "is_active": user.is_sos_active
         })
     return jsonify({"error": "Not found"}), 404
 
@@ -230,6 +248,9 @@ def serve_upload(filename):
 @app.route("/send_alert", methods=["POST"])
 @token_required
 def send_alert(current_user):
+    current_user.is_sos_active = True
+    db.session.commit()
+    # ... existing alert logic ...
     try:
         data = request.get_json(silent=True) or {}
         location = data.get("location")
@@ -249,7 +270,7 @@ def send_alert(current_user):
         PASSWORD = config.get("ALERT_APP_PASSWORD", "").replace(" ", "").strip()
         if EMAIL and PASSWORD:
             try:
-                with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                with smtplib.SMTP("smtp.gmail.com", 587, timeout=10) as server:
                     server.starttls()
                     server.login(EMAIL, PASSWORD)
                     for contact in current_user.contacts:
@@ -305,6 +326,13 @@ def send_alert(current_user):
         return jsonify({"status": "✅ Alerts Dispatched"})
     except Exception as e:
         return jsonify({"status": f"❌ Error: {str(e)}"}), 500
+
+@app.route("/deactivate_sos", methods=["POST"])
+@token_required
+def deactivate_sos(current_user):
+    current_user.is_sos_active = False
+    db.session.commit()
+    return jsonify({"message": "SOS deactivated"})
 
 if __name__ == '__main__':
     with app.app_context():

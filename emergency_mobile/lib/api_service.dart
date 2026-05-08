@@ -76,4 +76,11 @@ class ApiService {
     request.files.add(await http.MultipartFile.fromPath('file', filePath));
     return await request.send();
   }
+
+  static Future<http.Response> deactivateSos(String token) async {
+    return await http.post(
+      Uri.parse('$baseUrl/deactivate_sos'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
 }

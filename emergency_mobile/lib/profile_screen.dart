@@ -14,6 +14,7 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _nameController = TextEditingController();
   final _medicalController = TextEditingController();
+  final _pinController = TextEditingController();
   List<Map<String, String>> _contacts = [];
   bool _isLoading = true;
 
@@ -31,6 +32,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         _nameController.text = data['full_name'] ?? '';
         _medicalController.text = data['medical_notes'] ?? '';
+        _pinController.text = data['rescue_pin'] ?? '1234';
         _contacts = List<Map<String, String>>.from(
           data['contacts'].map((c) => Map<String, String>.from(c))
         );
@@ -44,6 +46,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final res = await ApiService.updateProfile(auth.token!, {
       'full_name': _nameController.text,
       'medical_notes': _medicalController.text,
+      'rescue_pin': _pinController.text,
       'contacts': _contacts,
     });
     if (res.statusCode == 200) {
@@ -106,6 +109,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             controller: _medicalController, 
             maxLines: 3, 
             decoration: const InputDecoration(labelText: "Medical Notes (Allergies, Blood Type, etc.)", border: OutlineInputBorder())
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _pinController, 
+            maxLength: 4,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: "RESCUE PIN (4 Digits)", border: OutlineInputBorder(), helperText: "Required to deactivate SOS")
           ),
           const SizedBox(height: 32),
           Row(
