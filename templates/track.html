@@ -36,9 +36,14 @@
                 <div id="categoryBadge" style="font-size: 12px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">GENERAL</div>
             </div>
             
-            <div class="sos-indicator">
-                <span class="status-pulse"></span>
-                ACTIVE SOS SIGNAL
+            <div style="display: flex; gap: 10px; align-items: center;">
+                <button onclick="toggleStealth()" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
+                    HIDE UI
+                </button>
+                <div class="sos-indicator">
+                    <span class="status-pulse"></span>
+                    ACTIVE SOS SIGNAL
+                </div>
             </div>
         </header>
 
@@ -77,7 +82,7 @@
         </aside>
 
         <!-- Center: Empty for map visibility -->
-        <main class="sidebar-center"></main>
+        <main class="sidebar-center" style="pointer-events: none;"></main>
 
         <!-- Right Sidebar: Evidence & Logs -->
         <aside class="sidebar-right">
@@ -124,12 +129,18 @@
         // Dark-mode Tile Layer
         L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
 
-        function addLog(msg, type = "GPS") {
-            const panel = document.getElementById('logPanel');
-            const entry = document.createElement('div');
-            entry.className = 'log-item';
-            entry.innerHTML = `<span class="log-time">${type}</span> ${msg}`;
-            panel.prepend(entry);
+        function toggleStealth() {
+            const overlay = document.querySelector('.dashboard-overlay');
+            const btn = event.currentTarget;
+            if (overlay.classList.contains('stealth-mode')) {
+                overlay.classList.remove('stealth-mode');
+                btn.innerText = "HIDE UI";
+                btn.style.background = "rgba(255,255,255,0.1)";
+            } else {
+                overlay.classList.add('stealth-mode');
+                btn.innerText = "SHOW UI";
+                btn.style.background = "var(--accent-red)";
+            }
         }
 
         // Generate Mock Waveform
@@ -142,6 +153,7 @@
         }
 
         async function fetchNearbyServices(lat, lng) {
+            console.log(`🛰️ Scanning for services near: ${lat}, ${lng}`);
             const query = `
                 [out:json];
                 (
@@ -156,15 +168,21 @@
             try {
                 const res = await fetch(url);
                 const data = await res.json();
+                console.log(`🎯 Found ${data.elements.length} services.`);
                 amenityMarkers.clearLayers();
                 
+                if (data.elements.length === 0) {
+                    addLog("No emergency services found in 5km radius.", "SYS");
+                    return;
+                }
+
                 data.elements.forEach(el => {
                     const iconType = el.tags.amenity === 'police' ? '🚓' : (el.tags.amenity === 'hospital' ? '🏥' : '🔥');
                     const color = el.tags.amenity === 'police' ? '#3b82f6' : '#ef4444';
                     
                     const icon = L.divIcon({
                         className: 'amenity-marker',
-                        html: `<div style="background: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px;">${iconType}</div>`,
+                        html: `<div style="background: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px; box-shadow: 0 0 10px ${color};">${iconType}</div>`,
                         iconSize: [30, 30]
                     });
                     
@@ -173,7 +191,10 @@
                         .addTo(amenityMarkers);
                 });
                 addLog(`Found ${data.elements.length} nearby emergency units.`, "SYS");
-            } catch (e) { console.error("Overpass error", e); }
+            } catch (e) { 
+                console.error("Overpass error", e); 
+                addLog("Emergency service scan failed (Network).", "SYS");
+            }
         }
 
         let latestAudioUrl = null;

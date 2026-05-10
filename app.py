@@ -157,7 +157,6 @@ def update_location(current_user):
     battery = data.get("battery")
     if new_location:
         current_user.current_location = new_location
-        current_user.is_sos_active = True # Ensure active if location is being pushed
         if battery:
             current_user.battery_level = battery
         db.session.commit()
@@ -327,6 +326,13 @@ def send_alert(current_user):
     except Exception as e:
         return jsonify({"status": f"❌ Error: {str(e)}"}), 500
 
+@app.route("/activate_sos", methods=["POST"])
+@token_required
+def activate_sos(current_user):
+    current_user.is_sos_active = True
+    db.session.commit()
+    return jsonify({"message": "SOS activated"})
+
 @app.route("/deactivate_sos", methods=["POST"])
 @token_required
 def deactivate_sos(current_user):
@@ -337,12 +343,17 @@ def deactivate_sos(current_user):
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
-        # Migration check for sos_category column
-        from sqlalchemy import inspect
+        # Zero-Failure Migration: Check for all security columns
+        from sqlalchemy import inspect, text
         inspector = inspect(db.engine)
-        if 'sos_category' not in [c['name'] for c in inspector.get_columns('user')]:
-            with db.engine.connect() as conn:
-                from sqlalchemy import text
+        columns = [c['name'] for c in inspector.get_columns('user')]
+        
+        with db.engine.connect() as conn:
+            if 'sos_category' not in columns:
                 conn.execute(text('ALTER TABLE user ADD COLUMN sos_category VARCHAR(50) DEFAULT "General"'))
-                conn.commit()
+            if 'rescue_pin' not in columns:
+                conn.execute(text('ALTER TABLE user ADD COLUMN rescue_pin VARCHAR(4) DEFAULT "1234"'))
+            if 'is_sos_active' not in columns:
+                conn.execute(text('ALTER TABLE user ADD COLUMN is_sos_active BOOLEAN DEFAULT 0'))
+            conn.commit()
     app.run(host='0.0.0.0', port=5000, debug=True)

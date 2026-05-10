@@ -176,6 +176,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       _status = "🛰️ LOCATING...";
       _isEmergencyInProgress = true;
     });
+
+    // Notify Server: SOS START
+    final auth = context.read<AuthProvider>();
+    if (auth.token != null) {
+      ApiService.activateSos(auth.token!);
+    }
     try {
       Position pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
       final locationUrl = "https://maps.google.com/?q=${pos.latitude},${pos.longitude}";
@@ -216,7 +222,8 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     }
   }
 
-  void _showPinDialog() {
+  void _showPinDialog() async {
+    await _fetchCorrectPin(); // Sync latest PIN before showing dialog
     String inputPin = "";
     showDialog(
       context: context,
@@ -350,7 +357,9 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                 ],
               ),
             ),
-            child: SafeArea(
+          child: SafeArea(
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Column(
@@ -391,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     const Text("SELECT EMERGENCY TYPE", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
                     const SizedBox(height: 16),
                     _categorySelector(),
-                    const Spacer(),
+                    const SizedBox(height: 40),
                     _mainSOSButton(),
                     if (isEmergencyActive) ...[
                       const SizedBox(height: 20),
@@ -406,14 +415,15 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                         child: const Text("I AM SAFE / STOP TRACKING", style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold, fontSize: 12)),
                       ),
                     ],
-                    const Spacer(),
+                    const SizedBox(height: 40),
                     const SizedBox(height: 30),
                   ],
                 ),
               ),
             ),
           ),
-    );
+        ),
+      );
   }
 
   Widget _statusBadge() {

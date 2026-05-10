@@ -1,77 +1,159 @@
-# 🚨 Emergency Alert System (SOS Command Center)
+# 🛡️ Guardian Elite: Advanced Emergency Response System
 
-A robust, multi-channel emergency response system designed for high-stakes safety scenarios. The system integrates mobile hardware triggers with cloud-based notifications and real-time forensic tracking.
-
-## ✨ Key Features
-- **Physical Deterrents**: High-decibel Police Siren and Camera Strobe to scare off attackers.
-- **Native SOS Engine**: Direct SIM-based SMS broadcasting (bypassing Android restrictions).
-- **Multi-Channel Alerts**: Simultaneous notification via **WhatsApp API**, **Email (SMTP)**, and **SMS**.
-- **Live Command Center**: Real-time map tracking with a high-tech "Radar" dashboard for emergency contacts.
-- **Forensic Evidence**: 15-second silent audio recording, automatically uploaded and shared via a secure link.
+**Guardian Elite** is a production-hardened, real-time emergency orchestration platform designed to provide maximum situational awareness during a crisis. It combines native mobile telemetry (GPS, Audio Evidence, Battery Status) with a high-fidelity Tactical Command Center for emergency responders.
 
 ---
 
-## 🛠️ Tech Stack
-- **Frontend**: Flutter (Android/iOS)
-- **Backend**: Python Flask (REST API)
-- **Database**: SQLite (SQLAlchemy ORM)
-- **Integrations**: Twilio API (WhatsApp), Gmail SMTP (Email), Leaflet.js (Mapping)
+## ⚡ Quick-Copy Command Reference
+
+### 1. Setup Backend (Run once)
+```cmd
+pip install flask flask-sqlalchemy flask-cors flask-bcrypt pyjwt
+```
+
+### 2. Launch the System (The 3-Terminal Flow)
+**Terminal 1 (Backend Engine):**
+```cmd
+python app.py
+```
+
+**Terminal 2 (Global Tunnel):**
+```cmd
+ngrok http 5000
+```
+
+**Terminal 3 (Mobile App):**
+```cmd
+cd emergency_mobile && flutter pub get && flutter run
+```
 
 ---
 
-## 🚀 Setup Instructions
-
-### 1. Backend Setup (Python)
-1. Navigate to the root directory.
-2. Install dependencies:
-   ```bash
-   pip install flask flask-sqlalchemy flask-bcrypt flask-cors PyJWT twilio flask-mail
-   ```
-3. Create a `.env` file in the root directory:
-   ```env
-   ALERT_EMAIL=your-email@gmail.com
-   ALERT_APP_PASSWORD=your-google-app-password
-   TWILIO_ACCOUNT_SID=your-twilio-sid
-   TWILIO_AUTH_TOKEN=your-twilio-token
-   TWILIO_WHATSAPP_NUMBER=whatsapp:+14155238886
-   ```
-4. Start the server:
-   ```bash
-   python app.py
-   ```
-
-### 2. Frontend Setup (Flutter)
-1. Navigate to the `emergency_mobile` directory.
-2. **CRITICAL STEP**: Open `lib/api_service.dart` and update the `baseUrl` variable:
-   ```dart
-   static const String baseUrl = 'http://127.0.0.1:5000'; // Replace with your laptop's IP
-   ```
-3. Install Flutter packages:
-   ```bash
-   flutter pub get
-   ```
-4. Build the APK:
-   ```bash
-   flutter build apk --debug
-   ```
+## 🛰️ Project Overview
+*   **Mobile App (Flutter)**: One-tap SOS trigger with native siren/strobe, real-time GPS streaming, and forensic audio recording.
+*   **Backend (Flask/Python)**: Secure JWT-authenticated API with self-healing SQLite database and automated SOS deactivation protocols.
+*   **Command Center (Web)**: Real-time Leaflet.js dashboard with "Stealth Mode," movement history, and nearby emergency service scanning (Hospitals/Police).
 
 ---
 
-## 📍 How to Use
-1. **Join Twilio Sandbox**: The emergency contact must text `join your-code` to your Twilio number to receive WhatsApp alerts.
-2. **Profile Setup**: Open the app, go to **Profile**, and add your emergency contacts (Name, Email, Phone). **Click Save.**
-3. **Trigger SOS**: Hold the central **SOS button** for 3 seconds.
-4. **Tracking**: The contacts will receive a link to the **Live Command Center** where they can watch your movement and listen to the recorded audio.
+## 🛠️ Prerequisites
+Before starting, ensure you have the following installed on your system:
+
+### 1. Python (Backend)
+*   Download and install **Python 3.10+** from [python.org](https://www.python.org/).
+*   **IMPORTANT**: Check the box that says **"Add Python to PATH"** during installation.
+
+### 2. Flutter & Android Studio (The Mobile Stack)
+This project requires the Flutter SDK and a configured Android development environment.
+
+#### **A. Install the Flutter SDK**
+1.  **Download**: Get the latest stable Flutter SDK from [flutter.dev](https://docs.flutter.dev/get-started/install/windows).
+2.  **Extract**: Extract the zip file to a permanent folder (e.g., `C:\src\flutter`). **DO NOT** install it in `C:\Program Files`.
+3.  **PATH Configuration (CRITICAL)**:
+    *   Search for "Environment Variables" in Windows Search.
+    *   Under "User variables," find **Path** and click **Edit**.
+    *   Click **New** and paste the path to your flutter bin folder (e.g., `C:\src\flutter\bin`).
+4.  **Verify CLI**: Open a **new** terminal and type `flutter --version`. If it shows a version number, the CLI is ready!
+
+#### **B. Setup Android Studio**
+1.  **Install**: Download [Android Studio](https://developer.android.com/studio).
+2.  **Plugins**: Open Android Studio -> **Settings** -> **Plugins**. Search for and install the **Flutter** and **Dart** plugins.
+3.  **SDK Tools**:
+    *   Go to **Settings** -> **Languages & Frameworks** -> **Android SDK** -> **SDK Tools**.
+    *   Check **Android SDK Command-line Tools (latest)** and click **Apply**.
+4.  **Licenses**: Open your terminal and run:
+    ```cmd
+    flutter doctor --android-licenses
+    ```
+    (Press `y` for every prompt to accept the terms).
+
+#### **D. Useful Flutter Setup Commands**
+| Action | Command |
+| :--- | :--- |
+| **Check Path** | `where flutter` |
+| **Health Check** | `flutter doctor` |
+| **Licenses** | `flutter doctor --android-licenses` |
+| **Reset Cache** | `flutter clean && flutter pub get` |
+| **Run App** | `flutter run` |
 
 ---
 
-## ⚠️ Important Note (Android Permissions)
-Since this is a side-loaded app, Android may block SMS permissions. 
-- Go to **App Info > Restricted Settings**.
-- Click the three dots (top right) and select **"Allow restricted settings."**
-- Enable **SMS**, **Microphone**, and **Location** permissions.
+### 3. Ngrok (Global Tunneling)
+*   Sign up for a free account at [ngrok.com](https://ngrok.com/).
+*   Download the Ngrok CLI and authenticate it using your authtoken.
 
 ---
 
-## ⚖️ License
-This project is for educational and emergency demonstration purposes.
+## 🚀 Installation & Setup
+
+### 1. Clone & Prepare Backend
+Open your terminal (CMD or PowerShell) and navigate to the project folder:
+```cmd
+cd "Emergency Alert\Emergency Alert"
+```
+
+**Install Python Dependencies:**
+```cmd
+pip install flask flask-sqlalchemy flask-cors flask-bcrypt pyjwt
+```
+
+### 2. Prepare Mobile App
+Navigate to the mobile directory:
+```cmd
+cd emergency_mobile
+```
+
+**Fetch Flutter Packages:**
+```cmd
+flutter pub get
+```
+
+---
+
+## 🛰️ Running the System (The 3-Step Sequence)
+
+For the system to work globally, you MUST follow this exact sequence:
+
+### Step 1: Start the Python Engine
+In your terminal:
+```cmd
+python app.py
+```
+*Your server is now running locally on port 5000.*
+
+### Step 2: Open the Global Tunnel (Ngrok)
+In a **new** terminal window:
+```cmd
+ngrok http 5000
+```
+*Copy the `Forwarding` URL (e.g., `https://abcd-123.ngrok-free.dev`).*
+
+### Step 3: Sync the App
+1.  Open `lib/api_service.dart` in the Flutter project.
+2.  Update the `baseUrl` with your **new Ngrok URL**:
+    ```dart
+    static const String baseUrl = "https://your-new-url.ngrok-free.dev";
+    ```
+3.  **Launch the App**:
+    ```cmd
+    flutter run
+    ```
+
+---
+
+## 🔐 Security & Features
+*   **Rescue PIN**: A mandatory 4-digit code (Default: `1234`) required to stop tracking. Change this in your **Safety Profile**.
+*   **Stealth Mode**: Tap **HIDE UI** on the dashboard to see a full-screen map without clutter.
+*   **Nearby Services**: The dashboard automatically scans a 5km radius for hospitals and police stations using the Overpass API.
+
+---
+
+## ❓ Troubleshooting
+*   **Error: `no such column`**: Delete the `instance/emergency_system.db` file and restart `app.py`.
+*   **App won't connect**: Ensure the Ngrok URL in `api_service.dart` matches your active tunnel.
+*   **Map not moving**: Ensure you are not touching a UI card; the center of the screen is "Touch-Through" to the map.
+
+---
+
+**Built with 🦾 for Kumar Vasanth by Antigravity.** 
+*Guardian Elite: Because every second counts.*

@@ -77,6 +77,13 @@ class ApiService {
     return await request.send();
   }
 
+  static Future<http.Response> activateSos(String token) async {
+    return await http.post(
+      Uri.parse('$baseUrl/activate_sos'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
   static Future<http.Response> deactivateSos(String token) async {
     return await http.post(
       Uri.parse('$baseUrl/deactivate_sos'),
