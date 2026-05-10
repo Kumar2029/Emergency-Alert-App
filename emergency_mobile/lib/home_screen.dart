@@ -92,7 +92,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           if (mounted) setState(() => _correctPin = data['rescue_pin'] ?? "1234");
         }
       }
-    } catch (e) { print("PIN sync error: $e"); }
+    } catch (e) { /* PIN sync error handled silently */ }
   }
 
   Future<void> _checkAndRequestPermissions() async {
@@ -311,7 +311,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         
         int level = _batteryLevel;
         await ApiService.updateLocation(token, currentUrl, battery: level.toString());
-      } catch (e) { print("Tracking error: $e"); }
+      } catch (e) { /* Tracking error handled silently */ }
     });
   }
 

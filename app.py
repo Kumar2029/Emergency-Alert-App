@@ -274,7 +274,7 @@ def send_alert(current_user):
                     server.login(EMAIL, PASSWORD)
                     for contact in current_user.contacts:
                         if contact.email:
-                            print(f"📧 Attempting Email to: {contact.email}")
+                            # Log transmission attempt
                             msg = EmailMessage()
                             msg["From"] = EMAIL
                             msg["To"] = contact.email
@@ -297,9 +297,9 @@ def send_alert(current_user):
                             """
                             msg.add_alternative(html_content, subtype="html")
                             server.send_message(msg)
-                            print(f"✅ HTML Email Sent to {contact.email}")
+                            # Email success
             except Exception as e: 
-                print(f"❌ Email System Error: {e}")
+                # Email error handled silently
 
         # 2. WHATSAPP
         TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
@@ -312,15 +312,15 @@ def send_alert(current_user):
                     if contact.phone:
                         clean_phone = str(contact.phone).strip()
                         if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
-                        print(f"🟢 Attempting WhatsApp to: {clean_phone}")
+                        # Log WhatsApp attempt
                         client.messages.create(
                             body=f"🔴 *{category.upper()} EMERGENCY: {current_user.full_name.upper()}*\n\n📍 *Current Location*:\n{location}\n\n🛰️ *Live Tracking Dashboard*:\n{tracking_url}",
                             from_=TWILIO_FROM,
                             to=f"whatsapp:{clean_phone}"
                         )
-                        print(f"✅ WhatsApp Sent to {clean_phone}")
+                        # WhatsApp success
             except Exception as twilio_e: 
-                print(f"❌ WhatsApp System Error: {twilio_e}")
+                # WhatsApp error handled silently
 
         return jsonify({"status": "✅ Alerts Dispatched"})
     except Exception as e:
