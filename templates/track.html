@@ -1,43 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Guardian Elite | SOS Command Center</title>
-    
+
+    <style>
+        .pulse-marker-elite {
+            background: #ef4444 !important;
+            border-radius: 50% !important;
+            border: 2px solid white !important;
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.8);
+            position: relative;
+            overflow: visible;
+        }
+
+        .pulse-marker-elite::after {
+            content: '';
+            position: absolute;
+            top: -10px;
+            left: -10px;
+            right: -10px;
+            bottom: -10px;
+            border: 2px solid #ef4444;
+            border-radius: 50%;
+            animation: ripple 1.5s infinite;
+            opacity: 0;
+        }
+
+        @keyframes ripple {
+            0% {
+                transform: scale(0.5);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(2.5);
+                opacity: 0;
+            }
+        }
+        .amenity-marker {
+            background: none !important;
+            border: none !important;
+            display: block !important;
+            z-index: 9999 !important;
+        }
+    </style>
+
     <!-- Google Fonts: Inter & JetBrains Mono -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
-    
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800&family=JetBrains+Mono:wght@500&display=swap"
+        rel="stylesheet">
+
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    
+
     <!-- Guardian Custom CSS -->
     <link rel="stylesheet" href="/static/dashboard.css" />
 </head>
+
 <body>
 
     <!-- Map Layer -->
     <div id="map"></div>
 
-    <!-- Radar Sweep Effect -->
-    <div class="radar-overlay">
-        <div class="radar-sweep"></div>
-    </div>
-
     <!-- UI Overlay -->
     <div class="dashboard-overlay">
-        
+
         <!-- Header -->
         <header class="header fade-in" style="animation-delay: 0.1s;">
             <div class="logo-section">
-                <div style="font-size: 24px; font-weight: 800; letter-spacing: -1px;">GUARDIAN<span style="color: var(--accent-red)">ELITE</span></div>
-                <div id="categoryBadge" style="font-size: 12px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">GENERAL</div>
+                <div style="font-size: 24px; font-weight: 800; letter-spacing: -1px;">GUARDIAN<span
+                        style="color: var(--accent-red)">ELITE</span></div>
+                <div id="categoryBadge"
+                    style="font-size: 12px; color: var(--text-secondary); font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">
+                    GENERAL</div>
             </div>
-            
+
             <div style="display: flex; gap: 10px; align-items: center;">
-                <button onclick="toggleStealth()" style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
+                <button onclick="scanHelp()"
+                    style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
+                    SCAN HELP
+                </button>
+                <button onclick="toggleStealth()"
+                    style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
                     HIDE UI
                 </button>
                 <div class="sos-indicator">
@@ -53,16 +102,17 @@
                 <div class="avatar-large" id="avatar">?</div>
                 <div>
                     <h2 id="userName" style="font-size: 24px; font-weight: 800;">Tracking...</h2>
-                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">ID: #SOS-{{ user_id }}</p>
+                    <p style="color: var(--text-secondary); font-size: 12px; margin-top: 4px;">ID: #SOS-{{ user_id }}
+                    </p>
                 </div>
-                
+
                 <div style="width: 100%; height: 1px; background: var(--glass-border); margin: 8px 0;"></div>
-                
+
                 <div class="location-info">
                     <div class="info-label">Current Coordinates</div>
                     <div class="info-value" id="coords">0.0000, 0.0000</div>
                 </div>
-                
+
                 <div class="location-info" style="margin-top: 16px;">
                     <div class="info-label">Signal Status</div>
                     <div class="info-value" style="color: #4ade80;">ENCRYPTED • STRONG</div>
@@ -74,8 +124,13 @@
                 </div>
             </div>
 
-            <div class="glass-panel fade-in" style="animation-delay: 0.3s; padding: 20px;">
-                <button onclick="window.location.reload()" style="width: 100%; background: var(--accent-red); border: none; color: white; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: transform 0.2s;">
+            <div class="glass-panel fade-in" style="animation-delay: 0.3s; padding: 20px; display: flex; flex-direction: column; gap: 10px;">
+                <button onclick="toggleAutoCenter()"
+                    style="width: 100%; background: #3b82f6; border: none; color: white; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: transform 0.2s;">
+                    RE-CENTER ON VICTIM
+                </button>
+                <button onclick="window.location.reload()"
+                    style="width: 100%; background: var(--accent-red); border: none; color: white; padding: 12px; border-radius: 12px; font-weight: 700; cursor: pointer; transition: transform 0.2s;">
                     REFRESH COMMAND LINK
                 </button>
             </div>
@@ -94,7 +149,8 @@
                 </div>
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px;">
                     <div style="font-size: 12px; color: var(--text-secondary);">15s Capture</div>
-                    <button id="playAudio" style="background: white; border: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
+                    <button id="playAudio"
+                        style="background: white; border: none; padding: 6px 16px; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer;">
                         PLAY CLIP
                     </button>
                 </div>
@@ -115,177 +171,184 @@
     <!-- Scripts -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        const userId = {{ user_id }};
-        let map = L.map('map', { zoomControl: false, attributionControl: false }).setView([0, 0], 2);
-        let marker;
-        let amenityMarkers = L.layerGroup().addTo(map);
-        let path = L.polyline([], { 
-            color: '#ff3e3e', 
-            weight: 4, 
-            opacity: 0.6,
-            dashArray: '8, 8'
-        }).addTo(map);
+        const userId = parseInt("{{ user_id }}") || 2;
+        let map;
+        let marker = null;
+        let latestAudioUrl = null;
+        const audioPlayer = new Audio();
+        try {
+            map = L.map('map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 20 }).addTo(map);
+            console.log("🌍 MAP ENGINE: Online");
+        } catch (e) { console.error("Map failure:", e); }
 
-        // Dark-mode Tile Layer
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+        let firstLock = true;
+        let autoCenter = true;
+        let amenityMarkers = (map) ? L.layerGroup().addTo(map) : null;
+
+        // Manual Override: Stop auto-centering if user moves the map
+        if (map) {
+            map.on('movestart', () => {
+                if (map._manualMove) autoCenter = false;
+            });
+            map.on('mousedown', () => map._manualMove = true);
+            map.on('mouseup', () => map._manualMove = false);
+        }
+
+        function toggleAutoCenter() {
+            autoCenter = true;
+            if (marker) map.setView(marker.getLatLng(), 17);
+            addLog("Auto-center re-engaged", "SYS");
+        }
+
+        // Generate Visual Waveform
+        function initWaveform() {
+            const waveform = document.getElementById('waveform');
+            if (waveform) {
+                waveform.innerHTML = '';
+                for (let i = 0; i < 40; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'waveform-bar';
+                    const height = Math.floor(Math.random() * 30) + 5;
+                    bar.style.height = `${height}px`;
+                    waveform.appendChild(bar);
+                }
+            }
+        }
+        initWaveform();
+
+        function addLog(msg, type = "GPS") {
+            const container = document.getElementById('logPanel');
+            if (!container) return;
+            const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const item = document.createElement('div');
+            item.className = 'log-item';
+            item.innerHTML = `<span class="log-time">${time}</span> <span style="color: ${type === 'SYS' ? '#3b82f6' : 'var(--accent-red)'}">${type}</span> ${msg}`;
+            container.prepend(item);
+        }
+
+        function scanHelp() {
+            if (marker) {
+                const pos = marker.getLatLng();
+                fetchNearbyServices(pos.lat, pos.lng);
+            } else { addLog("Awaiting signal lock...", "SYS"); }
+        }
 
         function toggleStealth() {
             const overlay = document.querySelector('.dashboard-overlay');
-            const btn = event.currentTarget;
-            if (overlay.classList.contains('stealth-mode')) {
-                overlay.classList.remove('stealth-mode');
-                btn.innerText = "HIDE UI";
-                btn.style.background = "rgba(255,255,255,0.1)";
-            } else {
-                overlay.classList.add('stealth-mode');
-                btn.innerText = "SHOW UI";
-                btn.style.background = "var(--accent-red)";
-            }
-        }
-
-        // Generate Mock Waveform
-        const waveform = document.getElementById('waveform');
-        for (let i = 0; i < 20; i++) {
-            const bar = document.createElement('div');
-            bar.className = 'waveform-bar';
-            bar.style.animationDelay = `${i * 0.1}s`;
-            waveform.appendChild(bar);
+            if (overlay) overlay.classList.toggle('stealth-mode');
         }
 
         async function fetchNearbyServices(lat, lng) {
-            console.log(`🛰️ Scanning for services near: ${lat}, ${lng}`);
-            const query = `
-                [out:json];
-                (
-                  node["amenity"="hospital"](around:5000, ${lat}, ${lng});
-                  node["amenity"="police"](around:5000, ${lat}, ${lng});
-                  node["amenity"="fire_station"](around:5000, ${lat}, ${lng});
-                );
-                out body;
-            `;
-            const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
-            
+            if (!lat || !lng) return;
+            addLog("Radar Ping: Scanning 5km radius...", "SYS");
+            // Restrict to only the most essential services: Hospital and Police
+            const query = `[out:json][timeout:25];(node["amenity"~"hospital|police"](around:5000, ${lat}, ${lng}););out center;`;
             try {
-                const res = await fetch(url);
+                const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
                 const data = await res.json();
-                console.log(`🎯 Found ${data.elements.length} services.`);
-                amenityMarkers.clearLayers();
-                
-                if (data.elements.length === 0) {
-                    addLog("No emergency services found in 5km radius.", "SYS");
+                if (amenityMarkers) amenityMarkers.clearLayers();
+                if (!data.elements || data.elements.length === 0) {
+                    addLog("Radar: No units in range.", "SYS");
                     return;
                 }
-
                 data.elements.forEach(el => {
-                    const iconType = el.tags.amenity === 'police' ? '🚓' : (el.tags.amenity === 'hospital' ? '🏥' : '🔥');
-                    const color = el.tags.amenity === 'police' ? '#3b82f6' : '#ef4444';
+                    const type = el.tags.amenity;
+                    let iconType = '🏥';
+                    if (type === 'police') iconType = '🚓';
                     
                     const icon = L.divIcon({
                         className: 'amenity-marker',
-                        html: `<div style="background: ${color}; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 2px solid white; font-size: 14px; box-shadow: 0 0 10px ${color};">${iconType}</div>`,
-                        iconSize: [30, 30]
+                        html: `<div style="background: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; border: 3px solid #ef4444; font-size: 18px; box-shadow: 0 0 15px rgba(239, 68, 68, 0.8); font-weight: bold; position: relative; z-index: 9999;">${iconType}</div>`,
+                        iconSize: [30, 30],
+                        iconAnchor: [15, 15]
                     });
-                    
-                    L.marker([el.lat, el.lon], { icon: icon })
-                        .bindPopup(`<b>${el.tags.name || 'Emergency Service'}</b><br>${el.tags.amenity.toUpperCase()}`)
-                        .addTo(amenityMarkers);
+                    L.marker([el.lat, el.lon], { icon: icon, zIndexOffset: 1000 }).bindPopup(`<b style="color: black;">${el.tags.name || 'Emergency Unit'}</b>`).addTo(amenityMarkers);
                 });
-                addLog(`Found ${data.elements.length} nearby emergency units.`, "SYS");
-            } catch (e) { 
-                console.error("Overpass error", e); 
-                addLog("Emergency service scan failed (Network).", "SYS");
-            }
+                addLog(`Radar: ${data.elements.length} primary units identified.`, "SYS");
+            } catch (e) { addLog("Radar mirror busy.", "SYS"); }
         }
 
-        let latestAudioUrl = null;
-        const audioPlayer = new Audio();
+        async function updateTracking() {
+            try {
+                const response = await fetch(`/get_location/${userId}`);
+                const data = await response.json();
+                
+                if (document.getElementById('userName')) document.getElementById('userName').innerText = data.full_name || "Vasanth Kumar";
+                if (document.getElementById('battery')) document.getElementById('battery').innerText = data.battery ? `${data.battery}%` : '--%';
 
-        let trackingInterval = setInterval(updateTracking, 3000);
-        let isSafe = false;
-
-        function updateTracking() {
-            if (isSafe) return;
-            if (map) map.invalidateSize();
-            fetch(`/get_location/${userId}`)
-                .then(res => res.json())
-                .then(data => {
-                    const sosIndicator = document.querySelector('.sos-indicator');
-                    if (data.is_active === false) {
-                        isSafe = true;
-                        clearInterval(trackingInterval);
-                        sosIndicator.innerHTML = '<span style="color: #4ade80;">🟢 TARGET SECURED / SAFE</span>';
-                        sosIndicator.style.background = 'rgba(74, 222, 128, 0.1)';
-                        sosIndicator.style.border = '1px solid #4ade80';
-                        addLog("User verified safe. Monitoring suspended.", "SYS");
-                        return;
-                    }
-
-                    if (data.location) {
-                        const coords = data.location.split('q=')[1].split(',');
-                        const lat = parseFloat(coords[0]);
-                        const lng = parseFloat(coords[1]);
+                if (data.location) {
+                    const match = data.location.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);
+                    if (match) {
+                        const lat = parseFloat(match[1]);
+                        const lng = parseFloat(match[2]);
                         const pos = [lat, lng];
-                        
-                        // ... rest of update logic ...
-                        document.getElementById('coords').innerText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
-                        document.getElementById('userName').innerText = data.full_name;
-                        document.getElementById('avatar').innerText = data.full_name[0];
-                        document.getElementById('battery').innerText = data.battery ? `${data.battery}%` : 'Unknown';
-                        
-                        const catBadge = document.getElementById('categoryBadge');
-                        catBadge.innerText = data.category.toUpperCase();
-                        if (data.category === 'Medical') catBadge.style.color = '#4ade80';
-                        else if (data.category === 'Security') catBadge.style.color = '#3b82f6';
-                        else if (data.category === 'Fire') catBadge.style.color = '#f97316';
-                        else catBadge.style.color = 'var(--text-secondary)';
-                        latestAudioUrl = data.latest_audio;
-                        
-                        const playBtn = document.getElementById('playAudio');
-                        if (latestAudioUrl) {
-                            playBtn.style.opacity = "1";
-                            playBtn.innerText = "PLAY CLIP";
-                        } else {
-                            playBtn.style.opacity = "0.5";
-                            playBtn.innerText = "NO AUDIO";
-                        }
-                        
-                        if (data.battery && parseInt(data.battery) < 20) {
-                            document.getElementById('battery').style.color = 'var(--accent-red)';
-                        } else {
-                            document.getElementById('battery').style.color = '#4ade80';
-                        }
 
-                        if (!marker) {
-                            const icon = L.divIcon({ className: 'pulse-marker-elite', iconSize: [24, 24] });
-                            marker = L.marker(pos, { icon: icon }).addTo(map);
+                        if (document.getElementById('coords')) document.getElementById('coords').innerText = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+                        if (!marker && map) {
+                            marker = L.marker(pos, { icon: L.divIcon({ className: 'pulse-marker-elite', iconSize: [24, 24] }) }).addTo(map);
                             map.setView(pos, 17);
-                            addLog("Target signal locked. Tracking engaged.", "SYS");
+                            addLog(`Signal Locked: ${lat.toFixed(4)}, ${lng.toFixed(4)}`, "SYS");
                             fetchNearbyServices(lat, lng);
-                        } else {
+                        } else if (marker) {
+                            const lastPos = marker.getLatLng();
                             marker.setLatLng(pos);
-                            map.panTo(pos);
-                            const lastPos = path.getLatLngs().slice(-1)[0];
-                            if (!lastPos || Math.abs(lastPos.lat - lat) > 0.0001 || Math.abs(lastPos.lng - lng) > 0.0001) {
-                                path.addLatLng(pos);
-                                addLog(`Movement detected: ${lat.toFixed(4)}, ${lng.toFixed(4)}`);
+                            
+                            // Only snap map if Auto-Center is active
+                            if (autoCenter) {
+                                if (firstLock) { map.setView(pos, 17); firstLock = false; }
+                                else { map.panTo(pos); }
+                            }
+                            
+                            if (Math.abs(lastPos.lat - lat) > 0.005) {
+                                addLog("Movement detected. Updating radar...", "SYS");
                                 fetchNearbyServices(lat, lng);
                             }
                         }
                     }
-                })
-                .catch(err => console.log("Polling..."));
+                }
+                
+                latestAudioUrl = data.latest_audio;
+                const playBtn = document.getElementById('playAudio');
+                if (playBtn) playBtn.innerText = latestAudioUrl ? "PLAY CLIP" : "NO AUDIO";
+            } catch (err) { console.error("Polling error:", err); }
         }
 
-        document.getElementById('playAudio').addEventListener('click', () => {
+        document.getElementById('playAudio').addEventListener('click', function() {
             if (latestAudioUrl) {
+                const btn = this;
+                btn.innerText = "⏳ LOADING...";
+                btn.disabled = true;
+                
                 audioPlayer.src = latestAudioUrl;
-                audioPlayer.play();
-                addLog("Playing audio evidence...", "SYS");
+                audioPlayer.load();
+                
+                audioPlayer.play().then(() => {
+                    btn.innerText = "🔊 PLAYING";
+                    document.getElementById('waveform').classList.add('playing');
+                    addLog("Playing live audio evidence...", "SYS");
+                }).catch(e => {
+                    console.error("Audio Playback Error:", e);
+                    btn.innerText = "❌ ERROR";
+                    addLog("Audio playback failed.", "SYS");
+                });
+
+                audioPlayer.onended = () => {
+                    btn.innerText = "PLAY CLIP";
+                    btn.disabled = false;
+                    document.getElementById('waveform').classList.remove('playing');
+                };
+            } else {
+                this.innerText = "🔇 NO AUDIO";
+                setTimeout(() => { this.innerText = "PLAY CLIP"; }, 2000);
             }
         });
 
+        setInterval(updateTracking, 3000);
         updateTracking();
+        addLog("Tactical HUD Online", "SYS");
     </script>
 </body>
-</html>
 
+</html>

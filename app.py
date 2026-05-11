@@ -57,7 +57,8 @@ class User(db.Model):
     battery_level = db.Column(db.String(10))
     sos_category = db.Column(db.String(50), default="General")
     rescue_pin = db.Column(db.String(4), default="1234")
-    is_sos_active = db.Column(db.Boolean, default=False) # New Active Flag
+    is_sos_active = db.Column(db.Boolean, default=False)
+    audio_evidence = db.Column(db.String(255))
     contacts = db.relationship('EmergencyContact', backref='owner', lazy=True)
 
 class EmergencyContact(db.Model):
@@ -102,7 +103,7 @@ def register():
         email=data['email'], 
         password=hashed_password, 
         full_name=data.get('full_name', ''),
-        rescue_pin=data.get('rescue_pin', '1234')
+        rescue_pin=str(data.get('rescue_pin', '1234'))
     )
     db.session.add(new_user)
     db.session.commit()
@@ -152,25 +153,44 @@ def profile(current_user):
 @app.route("/update_location", methods=["POST"])
 @token_required
 def update_location(current_user):
-    data = request.get_json()
-    new_location = data.get("location")
+    data = request.get_json(silent=True) or {}
+    
+    # Try all possible keys from mobile app
+    lat = data.get("latitude")
+    lng = data.get("longitude")
+    loc_str = data.get("location")
     battery = data.get("battery")
-    if new_location:
-        current_user.current_location = new_location
-        if battery:
-            current_user.battery_level = battery
-        db.session.commit()
-        return jsonify({"status": "Updated"})
-    return jsonify({"status": "Error"}), 400
+
+    if lat and lng:
+        current_user.current_location = f"{lat},{lng}"
+    elif loc_str:
+        current_user.current_location = loc_str
+    
+    if battery:
+        current_user.battery_level = str(battery)
+    
+    # Handle audio if sent in the same request
+    audio_file = request.files.get('audio') or request.files.get('file')
+    if audio_file:
+        filename = f"sos_{current_user.id}_{int(time.time())}.m4a"
+        audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        current_user.audio_evidence = filename
+        
+    db.session.commit()
+    print(f"🛰️ SIGNAL RECEIVED: User {current_user.id} ({current_user.full_name}) is at {current_user.current_location} | Audio: {current_user.audio_evidence}")
+    return jsonify({"status": "Updated", "location": current_user.current_location, "audio": current_user.audio_evidence})
 
 @app.route("/upload_evidence", methods=["POST"])
 @token_required
 def upload_evidence(current_user):
-    if 'file' not in request.files:
+    audio_file = request.files.get('audio') or request.files.get('file')
+    if not audio_file:
         return jsonify({"message": "No file part"}), 400
-    file = request.files['file']
+    
     filename = f"sos_{current_user.id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.m4a"
-    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    current_user.audio_evidence = filename
+    db.session.commit()
     
     config = get_env_config()
     evidence_url = f"http://{request.host}/uploads/{filename}"
@@ -219,34 +239,29 @@ def live_track(user_id):
 
 @app.route("/get_location/<int:user_id>")
 def get_location(user_id):
-    user = db.session.get(User, user_id)
+    user = User.query.get(user_id)
     if user:
         # Get latest audio file for this user (sorted by actual creation time)
-        latest_audio = None
-        if os.path.exists(app.config['UPLOAD_FOLDER']):
-            files = [f for f in os.listdir(app.config['UPLOAD_FOLDER']) if f.startswith(f"sos_{user_id}_")]
-            if files:
-                # Sort by full path creation time to get the absolute latest
-                files.sort(key=lambda x: os.path.getctime(os.path.join(app.config['UPLOAD_FOLDER'], x)), reverse=True)
-                latest_audio = f"/uploads/{files[0]}"
-
+        print(f"📡 DASHBOARD REQUEST: Serving User {user_id} data. Location: {user.current_location}")
         return jsonify({
-            "location": user.current_location, 
+            "status": "success",
             "full_name": user.full_name,
+            "is_active": user.is_sos_active,
+            "location": user.current_location,
             "battery": user.battery_level,
-            "latest_audio": latest_audio,
-            "category": getattr(user, 'sos_category', 'General'), # Safe access
-            "is_active": user.is_sos_active
+            "category": user.sos_category,
+            "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None
         })
-    return jsonify({"error": "Not found"}), 404
+    return jsonify({"status": "error"}), 404
 
-@app.route('/uploads/<filename>')
+@app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route("/send_alert", methods=["POST"])
 @token_required
 def send_alert(current_user):
+    # Immediate Activation for Dashboard
     current_user.is_sos_active = True
     db.session.commit()
     # ... existing alert logic ...
@@ -300,6 +315,7 @@ def send_alert(current_user):
                             # Email success
             except Exception as e: 
                 # Email error handled silently
+                pass
 
         # 2. WHATSAPP
         TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
@@ -310,8 +326,11 @@ def send_alert(current_user):
                 client = Client(TWILIO_SID, TWILIO_AUTH)
                 for contact in current_user.contacts:
                     if contact.phone:
-                        clean_phone = str(contact.phone).strip()
-                        if not clean_phone.startswith('+'): clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+                        # Professional Sanitization
+                        clean_phone = "".join(filter(str.isdigit, str(contact.phone)))
+                        if not clean_phone.startswith('+'):
+                            clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+                        if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
                         # Log WhatsApp attempt
                         client.messages.create(
                             body=f"🔴 *{category.upper()} EMERGENCY: {current_user.full_name.upper()}*\n\n📍 *Current Location*:\n{location}\n\n🛰️ *Live Tracking Dashboard*:\n{tracking_url}",
@@ -321,6 +340,7 @@ def send_alert(current_user):
                         # WhatsApp success
             except Exception as twilio_e: 
                 # WhatsApp error handled silently
+                pass
 
         return jsonify({"status": "✅ Alerts Dispatched"})
     except Exception as e:
@@ -340,6 +360,10 @@ def deactivate_sos(current_user):
     db.session.commit()
     return jsonify({"message": "SOS deactivated"})
 
+@app.route('/uploads/<path:filename>')
+def download_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
 if __name__ == '__main__':
     with app.app_context():
         db.create_all()
@@ -355,5 +379,7 @@ if __name__ == '__main__':
                 conn.execute(text('ALTER TABLE user ADD COLUMN rescue_pin VARCHAR(4) DEFAULT "1234"'))
             if 'is_sos_active' not in columns:
                 conn.execute(text('ALTER TABLE user ADD COLUMN is_sos_active BOOLEAN DEFAULT 0'))
+            if 'audio_evidence' not in columns:
+                conn.execute(text('ALTER TABLE user ADD COLUMN audio_evidence VARCHAR(255)'))
             conn.commit()
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5001, debug=True)
