@@ -27,7 +27,7 @@ def get_env_config():
                         key, val = line.split("=", 1)
                         config[key.strip()] = val.strip()
     except Exception as e:
-        print(f"⚠️ Error reading .env: {e}")
+        print(f"ERROR reading .env: {e}", flush=True)
     return config
 
 # --- CONFIGURATION & ENV LOADING ---
@@ -83,6 +83,7 @@ def token_required(f):
             data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
             current_user = db.session.get(User, data['user_id'])
         except Exception as e:
+            print(f"AUTH ERROR: {str(e)}", flush=True)
             return jsonify({'message': 'Token is invalid!', 'error': str(e)}), 401
         return f(current_user, *args, **kwargs)
     return decorated
@@ -153,32 +154,36 @@ def profile(current_user):
 @app.route("/update_location", methods=["POST"])
 @token_required
 def update_location(current_user):
-    data = request.get_json(silent=True) or {}
-    
-    # Try all possible keys from mobile app
-    lat = data.get("latitude")
-    lng = data.get("longitude")
-    loc_str = data.get("location")
-    battery = data.get("battery")
-
-    if lat and lng:
-        current_user.current_location = f"{lat},{lng}"
-    elif loc_str:
-        current_user.current_location = loc_str
-    
-    if battery:
-        current_user.battery_level = str(battery)
-    
-    # Handle audio if sent in the same request
-    audio_file = request.files.get('audio') or request.files.get('file')
-    if audio_file:
-        filename = f"sos_{current_user.id}_{int(time.time())}.m4a"
-        audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        current_user.audio_evidence = filename
+    try:
+        data = request.get_json(silent=True) or {}
         
-    db.session.commit()
-    print(f"🛰️ SIGNAL RECEIVED: User {current_user.id} ({current_user.full_name}) is at {current_user.current_location} | Audio: {current_user.audio_evidence}")
-    return jsonify({"status": "Updated", "location": current_user.current_location, "audio": current_user.audio_evidence})
+        # Try all possible keys from mobile app
+        lat = data.get("latitude")
+        lng = data.get("longitude")
+        loc_str = data.get("location")
+        battery = data.get("battery")
+
+        if lat and lng:
+            current_user.current_location = f"{lat},{lng}"
+        elif loc_str:
+            current_user.current_location = loc_str
+        
+        if battery:
+            current_user.battery_level = str(battery)
+        
+        # Handle audio if sent in the same request
+        audio_file = request.files.get('audio') or request.files.get('file')
+        if audio_file:
+            filename = f"sos_{current_user.id}_{int(time.time())}.m4a"
+            audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            current_user.audio_evidence = filename
+            
+        db.session.commit()
+        print(f"SIGNAL RECEIVED: User {current_user.id} ({current_user.full_name}) is at {current_user.current_location} | Audio: {current_user.audio_evidence}", flush=True)
+        return jsonify({"status": "Updated", "location": current_user.current_location, "audio": current_user.audio_evidence})
+    except Exception as e:
+        print(f"UPDATE_LOCATION ERROR: {str(e)}", flush=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/upload_evidence", methods=["POST"])
 @token_required
@@ -239,20 +244,24 @@ def live_track(user_id):
 
 @app.route("/get_location/<int:user_id>")
 def get_location(user_id):
-    user = User.query.get(user_id)
-    if user:
-        # Get latest audio file for this user (sorted by actual creation time)
-        print(f"📡 DASHBOARD REQUEST: Serving User {user_id} data. Location: {user.current_location}")
-        return jsonify({
-            "status": "success",
-            "full_name": user.full_name,
-            "is_active": user.is_sos_active,
-            "location": user.current_location,
-            "battery": user.battery_level,
-            "category": user.sos_category,
-            "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None
-        })
-    return jsonify({"status": "error"}), 404
+    try:
+        user = db.session.get(User, user_id)
+        if user:
+            # Get latest audio file for this user (sorted by actual creation time)
+            print(f"DASHBOARD REQUEST: Serving User {user_id} data. Location: {user.current_location}", flush=True)
+            return jsonify({
+                "status": "success",
+                "full_name": user.full_name,
+                "is_active": user.is_sos_active,
+                "location": user.current_location,
+                "battery": user.battery_level,
+                "category": user.sos_category,
+                "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None
+            })
+        return jsonify({"status": "error", "message": "User not found"}), 404
+    except Exception as e:
+        print(f"GET_LOCATION ERROR: {str(e)}", flush=True)
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
