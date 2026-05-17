@@ -141,6 +141,28 @@
 
         <!-- Right Sidebar: Evidence & Logs -->
         <aside class="sidebar-right">
+            <!-- Visual Evidence Card -->
+            <div class="glass-panel fade-in" style="animation-delay: 0.35s; margin-bottom: 15px; text-align: center;">
+                <div class="info-label" style="margin-bottom: 8px; text-align: left;">Live Visual Evidence</div>
+                
+                <!-- Snapshot Thumbnail -->
+                <div id="snapshotContainer" style="display: none; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1); margin-bottom: 10px;">
+                    <img id="snapshotImage" src="" alt="Emergency Snapshot" style="width: 100%; height: auto; display: block;" />
+                </div>
+                
+                <!-- Video Player -->
+                <div id="videoContainer" style="display: none; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                    <video id="videoPlayer" controls style="width: 100%; display: block;">
+                        <source id="videoSource" src="" type="video/mp4">
+                        Your browser does not support the video tag.
+                    </video>
+                </div>
+                
+                <div id="visualPlaceholder" style="color: var(--text-secondary); font-size: 12px; padding: 20px 0;">
+                    Awaiting Visuals...
+                </div>
+            </div>
+
             <!-- Audio Evidence Card -->
             <div class="glass-panel audio-card fade-in" style="animation-delay: 0.4s;">
                 <div class="info-label">Audio Evidence (Latest)</div>
@@ -175,6 +197,8 @@
         let map;
         let marker = null;
         let latestAudioUrl = null;
+        let currentSnapshot = null;
+        let currentVideo = null;
         const audioPlayer = new Audio();
         try {
             map = L.map('map', { zoomControl: false, attributionControl: false }).setView([20, 0], 2);
@@ -312,6 +336,25 @@
                 latestAudioUrl = data.latest_audio;
                 const playBtn = document.getElementById('playAudio');
                 if (playBtn) playBtn.innerText = latestAudioUrl ? "PLAY CLIP" : "NO AUDIO";
+                
+                // Visual Evidence Update
+                if (data.snapshot_evidence && data.snapshot_evidence !== currentSnapshot) {
+                    currentSnapshot = data.snapshot_evidence;
+                    document.getElementById('snapshotImage').src = currentSnapshot;
+                    document.getElementById('snapshotContainer').style.display = 'block';
+                    document.getElementById('visualPlaceholder').style.display = 'none';
+                    addLog("Snapshot Received", "SYS");
+                }
+                
+                if (data.video_evidence && data.video_evidence !== currentVideo) {
+                    currentVideo = data.video_evidence;
+                    document.getElementById('videoSource').src = currentVideo;
+                    document.getElementById('videoPlayer').load();
+                    document.getElementById('videoContainer').style.display = 'block';
+                    document.getElementById('visualPlaceholder').style.display = 'none';
+                    addLog("Video Evidence Received", "SYS");
+                }
+
             } catch (err) { console.error("Polling error:", err); }
         }
 

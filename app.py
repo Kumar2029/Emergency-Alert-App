@@ -37,11 +37,16 @@ app.config['SECRET_KEY'] = env_config.get('SECRET_KEY', 'guardian-elite-secure-3
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Ensure upload folder exists
+# Ensure upload folders exist
 UPLOAD_FOLDER = 'uploads'
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
+IMAGES_FOLDER = os.path.join(UPLOAD_FOLDER, 'images')
+VIDEOS_FOLDER = os.path.join(UPLOAD_FOLDER, 'videos')
+for folder in [UPLOAD_FOLDER, IMAGES_FOLDER, VIDEOS_FOLDER]:
+    if not os.path.exists(folder):
+        os.makedirs(folder)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+app.config['IMAGES_FOLDER'] = IMAGES_FOLDER
+app.config['VIDEOS_FOLDER'] = VIDEOS_FOLDER
 
 db = SQLAlchemy(app)
 
@@ -59,6 +64,8 @@ class User(db.Model):
     rescue_pin = db.Column(db.String(4), default="1234")
     is_sos_active = db.Column(db.Boolean, default=False)
     audio_evidence = db.Column(db.String(255))
+    snapshot_evidence = db.Column(db.String(255))
+    video_evidence = db.Column(db.String(255))
     contacts = db.relationship('EmergencyContact', backref='owner', lazy=True)
 
 class EmergencyContact(db.Model):
@@ -67,6 +74,13 @@ class EmergencyContact(db.Model):
     email = db.Column(db.String(120), nullable=False)
     phone = db.Column(db.String(20))
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+
+class CallLog(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    phone_number = db.Column(db.String(20))
+    call_status = db.Column(db.String(50))
+    timestamp = db.Column(db.DateTime, default=datetime.datetime.utcnow)
 
 with app.app_context():
     db.create_all()
@@ -238,6 +252,80 @@ def upload_evidence(current_user):
 
     return jsonify({"message": "Uploaded", "url": evidence_url})
 
+@app.route("/upload_snapshot", methods=["POST"])
+@token_required
+def upload_snapshot(current_user):
+    image_file = request.files.get('image') or request.files.get('file')
+    if not image_file:
+        return jsonify({"message": "No file part"}), 400
+    
+    filename = f"snap_{current_user.id}_{int(time.time())}.jpg"
+    image_file.save(os.path.join(app.config['IMAGES_FOLDER'], filename))
+    current_user.snapshot_evidence = filename
+    db.session.commit()
+    
+    evidence_url = f"http://{request.host}/uploads/images/{filename}"
+    return jsonify({"message": "Snapshot Uploaded", "url": evidence_url})
+
+@app.route("/upload_video", methods=["POST"])
+@token_required
+def upload_video(current_user):
+    video_file = request.files.get('video') or request.files.get('file')
+    if not video_file:
+        return jsonify({"message": "No file part"}), 400
+    
+    filename = f"vid_{current_user.id}_{int(time.time())}.mp4"
+    video_file.save(os.path.join(app.config['VIDEOS_FOLDER'], filename))
+    current_user.video_evidence = filename
+    db.session.commit()
+    
+    evidence_url = f"http://{request.host}/uploads/videos/{filename}"
+    return jsonify({"message": "Video Uploaded", "url": evidence_url})
+
+@app.route("/trigger_emergency_call", methods=["POST"])
+@token_required
+def trigger_emergency_call(current_user):
+    config = get_env_config()
+    TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
+    TWILIO_AUTH = config.get("TWILIO_AUTH_TOKEN")
+    # For voice calls, we need a regular Twilio number, but if we only have WHATSAPP, it might fail. 
+    # Fallback to taking the 'whatsapp:' prefix out if present.
+    tw_number = config.get("TWILIO_WHATSAPP_NUMBER", "")
+    TWILIO_FROM = tw_number.replace("whatsapp:", "") if tw_number else None
+    
+    if not current_user.contacts or not TWILIO_SID or not TWILIO_AUTH or not TWILIO_FROM:
+        return jsonify({"status": "Call Failed", "error": "Missing config or contacts"}), 500
+        
+    # Only call the first contact
+    contact = current_user.contacts[0]
+    if not contact.phone:
+        return jsonify({"status": "Call Failed", "error": "Contact has no phone number"}), 400
+        
+    clean_phone = "".join(filter(str.isdigit, str(contact.phone)))
+    if not clean_phone.startswith('+'):
+        clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+    if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
+        
+    try:
+        client = Client(TWILIO_SID, TWILIO_AUTH)
+        call = client.calls.create(
+            twiml='<Response><Say voice="alice">This is an automated emergency alert from Guardian Elite. The user may require immediate assistance. Live tracking and emergency evidence are available on the dashboard.</Say></Response>',
+            to=clean_phone,
+            from_=TWILIO_FROM
+        )
+        
+        # Log success
+        log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Initiated")
+        db.session.add(log)
+        db.session.commit()
+        return jsonify({"status": "Call Initiated", "sid": call.sid})
+    except Exception as e:
+        # Log failure silently
+        log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Failed")
+        db.session.add(log)
+        db.session.commit()
+        return jsonify({"status": "Call Failed", "error": str(e)}), 500
+
 @app.route("/track/<int:user_id>")
 def live_track(user_id):
     return render_template("track.html", user_id=user_id)
@@ -256,7 +344,9 @@ def get_location(user_id):
                 "location": user.current_location,
                 "battery": user.battery_level,
                 "category": user.sos_category,
-                "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None
+                "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None,
+                "snapshot_evidence": f"/uploads/images/{user.snapshot_evidence}" if getattr(user, 'snapshot_evidence', None) else None,
+                "video_evidence": f"/uploads/videos/{user.video_evidence}" if getattr(user, 'video_evidence', None) else None
             })
         return jsonify({"status": "error", "message": "User not found"}), 404
     except Exception as e:
@@ -266,6 +356,14 @@ def get_location(user_id):
 @app.route('/uploads/<path:filename>')
 def serve_upload(filename):
     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+@app.route('/uploads/images/<path:filename>')
+def serve_image(filename):
+    return send_from_directory(app.config['IMAGES_FOLDER'], filename)
+
+@app.route('/uploads/videos/<path:filename>')
+def serve_video(filename):
+    return send_from_directory(app.config['VIDEOS_FOLDER'], filename)
 
 @app.route("/send_alert", methods=["POST"])
 @token_required
@@ -390,5 +488,22 @@ if __name__ == '__main__':
                 conn.execute(text('ALTER TABLE user ADD COLUMN is_sos_active BOOLEAN DEFAULT 0'))
             if 'audio_evidence' not in columns:
                 conn.execute(text('ALTER TABLE user ADD COLUMN audio_evidence VARCHAR(255)'))
+            if 'snapshot_evidence' not in columns:
+                conn.execute(text('ALTER TABLE user ADD COLUMN snapshot_evidence VARCHAR(255)'))
+            if 'video_evidence' not in columns:
+                conn.execute(text('ALTER TABLE user ADD COLUMN video_evidence VARCHAR(255)'))
+            
+            # Create call_logs table if it doesn't exist
+            if 'call_log' not in inspector.get_table_names():
+                conn.execute(text('''
+                    CREATE TABLE call_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        phone_number VARCHAR(20),
+                        call_status VARCHAR(50),
+                        timestamp DATETIME,
+                        FOREIGN KEY(user_id) REFERENCES user(id)
+                    )
+                '''))
             conn.commit()
     app.run(host='0.0.0.0', port=5001, debug=True)

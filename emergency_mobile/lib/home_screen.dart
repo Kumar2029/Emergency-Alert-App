@@ -12,6 +12,7 @@ import 'package:torch_light/torch_light.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter_background/flutter_background.dart';
+import 'package:camera/camera.dart';
 import 'auth_provider.dart';
 import 'api_service.dart';
 
@@ -226,10 +227,12 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
       setState(() => _status = "📧 SOS ACTIVE: ALERTS");
       await ApiService.sendAlert(auth.token!, locationUrl, category: _selectedCategory);
 
-      // 3. START RECORDING
+      // 3. START MEDIA PIPELINE & AUTOMATED CALL (NON-BLOCKING)
       setState(() => _status = "🎙️ SOS ACTIVE: RECORDING");
       _startTracking(auth.token!);
-      await _startRecordingEvidence(auth.token!);
+      
+      // Fire and forget media & call handler to prevent blocking
+      _handleMediaAndCall(auth.token!);
       
     } catch (e) {
       setState(() {
@@ -332,6 +335,58 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     });
   }
 
+  Future<void> _handleMediaAndCall(String token) async {
+    // 1. TRIGGER TWILIO VOICE CALL
+    ApiService.triggerEmergencyCall(token).catchError((e) {
+      debugPrint("Twilio Call Error: $e");
+      return http.Response('', 500); // Silent fail
+    });
+
+    // 2. CAPTURE SNAPSHOT
+    CameraController? cameraController;
+    try {
+      final cameras = await availableCameras();
+      final frontCam = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front, orElse: () => cameras.first);
+      
+      // Initialize without audio to prevent mic lock conflict
+      cameraController = CameraController(frontCam, ResolutionPreset.medium, enableAudio: false);
+      await cameraController.initialize();
+      
+      final image = await cameraController.takePicture();
+      ApiService.uploadSnapshot(token, image.path).catchError((_) => http.StreamedResponse(const Stream.empty(), 500));
+      
+      await cameraController.dispose();
+      cameraController = null;
+    } catch (e) {
+      debugPrint("Snapshot Error: $e");
+      cameraController?.dispose();
+    }
+
+    // 3. RECORD 15s AUDIO
+    await _startRecordingEvidence(token);
+
+    // 4. RECORD SHORT VIDEO
+    try {
+      final cameras = await availableCameras();
+      final frontCam = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.front, orElse: () => cameras.first);
+      
+      // Initialize with audio for the video evidence
+      cameraController = CameraController(frontCam, ResolutionPreset.medium, enableAudio: true);
+      await cameraController.initialize();
+      
+      await cameraController.startVideoRecording();
+      await Future.delayed(const Duration(seconds: 7)); // Record 7 seconds
+      
+      final video = await cameraController.stopVideoRecording();
+      ApiService.uploadVideo(token, video.path).catchError((_) => http.StreamedResponse(const Stream.empty(), 500));
+      
+      await cameraController.dispose();
+    } catch (e) {
+      debugPrint("Video Error: $e");
+      cameraController?.dispose();
+    }
+  }
+
   Future<void> _startRecordingEvidence(String token) async {
     try {
       if (await _recorder.hasPermission()) {
@@ -340,20 +395,23 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         
         await _recorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
         
-        Timer(const Duration(seconds: 15), () async {
-          final filePath = await _recorder.stop();
-          if (filePath != null) {
-            setState(() => _status = "📤 UPLOADING...");
-            final res = await ApiService.uploadEvidence(token, filePath);
-            if (res.statusCode == 200) {
-              setState(() => _status = "✅ SOS COMPLETE (SECURED)");
-            } else {
-              setState(() => _status = "⚠️ UPLOAD FAIL");
-            }
+        // Wait 15 seconds asynchronously
+        await Future.delayed(const Duration(seconds: 15));
+        
+        final filePath = await _recorder.stop();
+        if (filePath != null) {
+          setState(() => _status = "📤 UPLOADING...");
+          final res = await ApiService.uploadEvidence(token, filePath);
+          if (res.statusCode == 200) {
+            setState(() => _status = "✅ SOS COMPLETE (SECURED)");
+          } else {
+            setState(() => _status = "⚠️ UPLOAD FAIL");
           }
-        });
+        }
       }
-    } catch (e) { setState(() => _status = "⚠️ RECORD ERROR"); }
+    } catch (e) { 
+      setState(() => _status = "⚠️ RECORD ERROR"); 
+    }
   }
 
   @override

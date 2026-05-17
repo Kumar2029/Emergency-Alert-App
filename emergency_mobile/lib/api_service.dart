@@ -90,4 +90,25 @@ class ApiService {
       headers: {'Authorization': 'Bearer $token'},
     );
   }
+
+  static Future<http.Response> triggerEmergencyCall(String token) async {
+    return await http.post(
+      Uri.parse('$baseUrl/trigger_emergency_call'),
+      headers: {'Authorization': 'Bearer $token'},
+    );
+  }
+
+  static Future<http.StreamedResponse> uploadSnapshot(String token, String filePath) async {
+    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload_snapshot'));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    return await request.send();
+  }
+
+  static Future<http.StreamedResponse> uploadVideo(String token, String filePath) async {
+    var request = http.MultipartRequest('POST', Uri.parse('$baseUrl/upload_video'));
+    request.headers['Authorization'] = 'Bearer $token';
+    request.files.add(await http.MultipartFile.fromPath('file', filePath));
+    return await request.send();
+  }
 }
