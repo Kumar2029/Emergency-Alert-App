@@ -39,6 +39,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
   int _batteryLevel = 100;
   StreamSubscription? _batterySubscription;
   bool _isUpdatingCategory = false;
+  bool _isBackgroundSosEnabled = false;
   static const platform = MethodChannel('com.emergency.app/hardware');
 
   @override
@@ -62,6 +63,21 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
         _triggerEmergency();
       }
     });
+
+    _checkAccessibilityService();
+  }
+
+  Future<void> _checkAccessibilityService() async {
+    try {
+      final bool isEnabled = await platform.invokeMethod('checkAccessibilityService');
+      if (mounted) {
+        setState(() {
+          _isBackgroundSosEnabled = isEnabled;
+        });
+      }
+    } catch (e) {
+      debugPrint("Failed to check accessibility service: $e");
+    }
   }
 
   void _initBatteryMonitoring() {
@@ -79,6 +95,7 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
     if (state == AppLifecycleState.resumed) {
       // Re-check permissions automatically when returning from settings
       _checkAndRequestPermissions();
+      _checkAccessibilityService();
     }
   }
 
@@ -396,7 +413,11 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
                     ),
                     const SizedBox(height: 30),
                     _telemetryGrid(),
-                    const SizedBox(height: 40),
+                    const SizedBox(height: 20),
+                    if (!_isBackgroundSosEnabled) ...[
+                      _buildAccessibilityBanner(),
+                      const SizedBox(height: 20),
+                    ],
                     const Text("SELECT EMERGENCY TYPE", style: TextStyle(color: Colors.grey, fontSize: 10, fontWeight: FontWeight.bold, letterSpacing: 2)),
                     const SizedBox(height: 16),
                     _categorySelector(),
@@ -424,6 +445,55 @@ class _HomeScreenState extends State<HomeScreen> with SingleTickerProviderStateM
           ),
         ),
       );
+  }
+
+  Widget _buildAccessibilityBanner() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.orange.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.orangeAccent.withOpacity(0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text("Background SOS Disabled", style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, fontSize: 12)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            "Enable Background SOS monitoring to allow the hardware volume buttons to trigger an alert even when the app is closed or the screen is locked.",
+            style: TextStyle(color: Colors.white70, fontSize: 10),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () async {
+                try {
+                  await platform.invokeMethod('openAccessibilitySettings');
+                } catch (e) {
+                  debugPrint("Failed to open settings: $e");
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orangeAccent,
+                foregroundColor: Colors.black,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: const Text("ENABLE NOW", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
+            ),
+          )
+        ],
+      ),
+    );
   }
 
   Widget _statusBadge() {

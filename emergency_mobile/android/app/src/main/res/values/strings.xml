@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="accessibility_service_description">Guardian Elite Background SOS Monitoring. Enabling this allows the app to detect triple-presses of the volume buttons to trigger emergency alerts even when the app is running in the background or minimized.</string>
+</resources>
