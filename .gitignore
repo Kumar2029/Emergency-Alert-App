@@ -1,47 +1,78 @@
-# Python 
+# ----------------------------------------------------------------------
+# GUARDIAN ELITE SECURITY: DO NOT TRACK SECRETS OR EVIDENCE
+# ----------------------------------------------------------------------
+
+# Environment Variables & API Keys
+.env
+*.env
+.env.local
+.env.*
+
+# Database (Contains user PII, Emails, and Hashed Passwords)
+*.db
+*.sqlite
+*.sqlite3
+emergency_system.db
+instance/
+
+# Forensic Evidence Uploads (To protect privacy)
+protected_uploads/
+uploads/
+videos/
+images/
+audio/
+
+# ----------------------------------------------------------------------
+# PYTHON & FLASK BACKEND
+# ----------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
-.venv
+.venv/
 venv/
 ENV/
-instance/
 .pytest_cache/
 .coverage
 htmlcov/
 
-# SECRETS (NEVER SHARE THESE)
-.env
-emergency_system.db
-uploads/
-
-# Flutter / Dart
+# ----------------------------------------------------------------------
+# FLUTTER MOBILE APP (emergency_mobile)
+# ----------------------------------------------------------------------
 .dart_tool/
 .packages
 .pub-cache/
 .pub/
 build/
-ios/Flutter/Generated.xcconfig
-ios/Flutter/flutter_export_environment.sh
-ios/Flutter/App.framework
-ios/Flutter/Flutter.framework
-ios/Flutter/Flutter.podspec
+coverage/
 
-# Android specific
-android/**/generated/
-android/local.properties
-android/key.properties
-*.keystore
-*.jks
+# Android Code Signing Keys (CRITICAL TO KEEP SECRET)
+**/android/local.properties
+**/android/key.properties
+**/android/**/*.keystore
+**/android/**/*.jks
+**/android/**/generated/
 
-# IDEs
+# iOS Specific
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/flutter_export_environment.sh
+**/ios/Flutter/App.framework
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/.generated/
+
+# ----------------------------------------------------------------------
+# IDE & OS FILES
+# ----------------------------------------------------------------------
 .vscode/
 .idea/
 *.swp
 *.swo
-*.DS_Store
+.DS_Store
+Thumbs.db
 
-# Compiled Binaries
+# ----------------------------------------------------------------------
+# COMPILED BINARIES
+# ----------------------------------------------------------------------
 *.apk
 *.aab
 *.exe

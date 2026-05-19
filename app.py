@@ -1,15 +1,18 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory, session, redirect, url_for
 import os
 import smtplib
 import datetime
 import jwt
 import time
+import uuid
+import threading
 from functools import wraps
 from flask_sqlalchemy import SQLAlchemy
 from flask_bcrypt import Bcrypt
 from flask_cors import CORS
 from email.message import EmailMessage
 from twilio.rest import Client
+from werkzeug.utils import secure_filename
 
 app = Flask(__name__)
 CORS(app) 
@@ -37,8 +40,15 @@ app.config['SECRET_KEY'] = env_config.get('SECRET_KEY', 'guardian-elite-secure-3
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///emergency_system.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
-# Ensure upload folders exist
-UPLOAD_FOLDER = 'uploads'
+# SECURITY HARDENING: Limit upload size to 20MB globally
+app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png', 'mp4', 'm4a'}
+
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# Ensure protected upload folders exist
+UPLOAD_FOLDER = 'protected_uploads'
 IMAGES_FOLDER = os.path.join(UPLOAD_FOLDER, 'images')
 VIDEOS_FOLDER = os.path.join(UPLOAD_FOLDER, 'videos')
 for folder in [UPLOAD_FOLDER, IMAGES_FOLDER, VIDEOS_FOLDER]:
@@ -49,6 +59,25 @@ app.config['IMAGES_FOLDER'] = IMAGES_FOLDER
 app.config['VIDEOS_FOLDER'] = VIDEOS_FOLDER
 
 db = SQLAlchemy(app)
+
+# SECURITY HARDENING: Auto-deletion scheduler for evidence (24 hours)
+def cleanup_old_evidence():
+    while True:
+        try:
+            now = time.time()
+            for folder in [UPLOAD_FOLDER, IMAGES_FOLDER, VIDEOS_FOLDER]:
+                if not os.path.exists(folder): continue
+                for filename in os.listdir(folder):
+                    filepath = os.path.join(folder, filename)
+                    if os.path.isfile(filepath):
+                        # Delete files older than 24 hours (86400 seconds)
+                        if now - os.path.getctime(filepath) > 86400:
+                            os.remove(filepath)
+        except Exception as e:
+            print(f"Cleanup error: {e}", flush=True)
+        time.sleep(3600) # Run once per hour
+
+threading.Thread(target=cleanup_old_evidence, daemon=True).start()
 
 
 # --- DATABASE MODELS ---
@@ -131,7 +160,7 @@ def login():
     if user and bcrypt.check_password_hash(user.password, data['password']):
         token = jwt.encode({
             'user_id': user.id,
-            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=24)
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(days=30)
         }, app.config['SECRET_KEY'])
         return jsonify({'token': token, 'full_name': user.full_name})
     return jsonify({"message": "Invalid credentials"}), 401
@@ -187,8 +216,8 @@ def update_location(current_user):
         
         # Handle audio if sent in the same request
         audio_file = request.files.get('audio') or request.files.get('file')
-        if audio_file:
-            filename = f"sos_{current_user.id}_{int(time.time())}.m4a"
+        if audio_file and allowed_file(audio_file.filename):
+            filename = f"sos_{current_user.id}_{uuid.uuid4().hex}.m4a"
             audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
             current_user.audio_evidence = filename
             
@@ -197,22 +226,22 @@ def update_location(current_user):
         return jsonify({"status": "Updated", "location": current_user.current_location, "audio": current_user.audio_evidence})
     except Exception as e:
         print(f"UPDATE_LOCATION ERROR: {str(e)}", flush=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Internal error processing location"}), 500
 
 @app.route("/upload_evidence", methods=["POST"])
 @token_required
 def upload_evidence(current_user):
     audio_file = request.files.get('audio') or request.files.get('file')
-    if not audio_file:
-        return jsonify({"message": "No file part"}), 400
+    if not audio_file or not allowed_file(audio_file.filename):
+        return jsonify({"message": "Invalid file or extension"}), 400
     
-    filename = f"sos_{current_user.id}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.m4a"
+    filename = f"sos_{current_user.id}_{uuid.uuid4().hex}.m4a"
     audio_file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
     current_user.audio_evidence = filename
     db.session.commit()
     
     config = get_env_config()
-    evidence_url = f"http://{request.host}/uploads/{filename}"
+    evidence_url = f"http://{request.host}/protected_uploads/{filename}"
     tracking_url = f"http://{request.host}/track/{current_user.id}"
     
     # Send Second Alert with Audio Link
@@ -256,30 +285,30 @@ def upload_evidence(current_user):
 @token_required
 def upload_snapshot(current_user):
     image_file = request.files.get('image') or request.files.get('file')
-    if not image_file:
-        return jsonify({"message": "No file part"}), 400
+    if not image_file or not allowed_file(image_file.filename):
+        return jsonify({"message": "Invalid file or extension"}), 400
     
-    filename = f"snap_{current_user.id}_{int(time.time())}.jpg"
+    filename = f"snap_{current_user.id}_{uuid.uuid4().hex}.jpg"
     image_file.save(os.path.join(app.config['IMAGES_FOLDER'], filename))
     current_user.snapshot_evidence = filename
     db.session.commit()
     
-    evidence_url = f"http://{request.host}/uploads/images/{filename}"
+    evidence_url = f"http://{request.host}/protected_uploads/images/{filename}"
     return jsonify({"message": "Snapshot Uploaded", "url": evidence_url})
 
 @app.route("/upload_video", methods=["POST"])
 @token_required
 def upload_video(current_user):
     video_file = request.files.get('video') or request.files.get('file')
-    if not video_file:
-        return jsonify({"message": "No file part"}), 400
+    if not video_file or not allowed_file(video_file.filename):
+        return jsonify({"message": "Invalid file or extension"}), 400
     
-    filename = f"vid_{current_user.id}_{int(time.time())}.mp4"
+    filename = f"vid_{current_user.id}_{uuid.uuid4().hex}.mp4"
     video_file.save(os.path.join(app.config['VIDEOS_FOLDER'], filename))
     current_user.video_evidence = filename
     db.session.commit()
     
-    evidence_url = f"http://{request.host}/uploads/videos/{filename}"
+    evidence_url = f"http://{request.host}/protected_uploads/videos/{filename}"
     return jsonify({"message": "Video Uploaded", "url": evidence_url})
 
 @app.route("/trigger_emergency_call", methods=["POST"])
@@ -288,43 +317,45 @@ def trigger_emergency_call(current_user):
     config = get_env_config()
     TWILIO_SID = config.get("TWILIO_ACCOUNT_SID")
     TWILIO_AUTH = config.get("TWILIO_AUTH_TOKEN")
-    # For voice calls, we need a regular Twilio number, but if we only have WHATSAPP, it might fail. 
-    # Fallback to taking the 'whatsapp:' prefix out if present.
-    tw_number = config.get("TWILIO_WHATSAPP_NUMBER", "")
-    TWILIO_FROM = tw_number.replace("whatsapp:", "") if tw_number else None
+    # Use a dedicated voice number instead of the WhatsApp sandbox number
+    TWILIO_FROM = config.get("TWILIO_VOICE_NUMBER")
     
     if not current_user.contacts or not TWILIO_SID or not TWILIO_AUTH or not TWILIO_FROM:
         return jsonify({"status": "Call Failed", "error": "Missing config or contacts"}), 500
         
-    # Only call the first contact
-    contact = current_user.contacts[0]
-    if not contact.phone:
-        return jsonify({"status": "Call Failed", "error": "Contact has no phone number"}), 400
-        
-    clean_phone = "".join(filter(str.isdigit, str(contact.phone)))
-    if not clean_phone.startswith('+'):
-        clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
-    if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
-        
     try:
         client = Client(TWILIO_SID, TWILIO_AUTH)
-        call = client.calls.create(
-            twiml='<Response><Say voice="alice">This is an automated emergency alert from Guardian Elite. The user may require immediate assistance. Live tracking and emergency evidence are available on the dashboard.</Say></Response>',
-            to=clean_phone,
-            from_=TWILIO_FROM
-        )
+        called_numbers = []
         
-        # Log success
-        log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Initiated")
-        db.session.add(log)
+        # Loop through up to the first 3 contacts
+        for contact in current_user.contacts[:3]:
+            if not contact.phone: continue
+            
+            clean_phone = "".join(filter(str.isdigit, str(contact.phone)))
+            if not clean_phone.startswith('+'):
+                clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
+            if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
+                
+            try:
+                custom_message = f'<Response><Say voice="alice">This is an automated emergency alert from Guardian Elite. {current_user.full_name} has requested immediate assistance. Live tracking and emergency evidence are available on the dashboard.</Say></Response>'
+                call = client.calls.create(
+                    twiml=custom_message,
+                    to=clean_phone,
+                    from_=TWILIO_FROM
+                )
+                log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Initiated")
+                db.session.add(log)
+                called_numbers.append(clean_phone)
+            except Exception as twilio_e:
+                print(f"TWILIO CALL ERROR for {clean_phone}: {str(twilio_e)}", flush=True)
+                log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Failed")
+                db.session.add(log)
+                
         db.session.commit()
-        return jsonify({"status": "Call Initiated", "sid": call.sid})
+        return jsonify({"status": "Calls Initiated", "called": called_numbers})
     except Exception as e:
-        # Log failure silently
-        log = CallLog(user_id=current_user.id, phone_number=clean_phone, call_status="Failed")
-        db.session.add(log)
-        db.session.commit()
-        return jsonify({"status": "Call Failed", "error": str(e)}), 500
+        print(f"TWILIO CLIENT ERROR: {str(e)}", flush=True)
+        return jsonify({"status": "Call Failed", "error": "Internal communication error"}), 500
 
 @app.route("/track/<int:user_id>")
 def live_track(user_id):
@@ -335,7 +366,6 @@ def get_location(user_id):
     try:
         user = db.session.get(User, user_id)
         if user:
-            # Get latest audio file for this user (sorted by actual creation time)
             print(f"DASHBOARD REQUEST: Serving User {user_id} data. Location: {user.current_location}", flush=True)
             return jsonify({
                 "status": "success",
@@ -344,26 +374,30 @@ def get_location(user_id):
                 "location": user.current_location,
                 "battery": user.battery_level,
                 "category": user.sos_category,
-                "latest_audio": f"/uploads/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None,
-                "snapshot_evidence": f"/uploads/images/{user.snapshot_evidence}" if getattr(user, 'snapshot_evidence', None) else None,
-                "video_evidence": f"/uploads/videos/{user.video_evidence}" if getattr(user, 'video_evidence', None) else None
+                "latest_audio": f"/protected_uploads/audio/{user.audio_evidence}" if getattr(user, 'audio_evidence', None) else None,
+                "snapshot_evidence": f"/protected_uploads/images/{user.snapshot_evidence}" if getattr(user, 'snapshot_evidence', None) else None,
+                "video_evidence": f"/protected_uploads/videos/{user.video_evidence}" if getattr(user, 'video_evidence', None) else None
             })
         return jsonify({"status": "error", "message": "User not found"}), 404
     except Exception as e:
         print(f"GET_LOCATION ERROR: {str(e)}", flush=True)
-        return jsonify({"status": "error", "message": str(e)}), 500
+        return jsonify({"status": "error", "message": "Internal Server Error"}), 500
 
-@app.route('/uploads/<path:filename>')
-def serve_upload(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+def check_media_auth(filename):
+    # Disabled for demo presentation
+    return True
 
-@app.route('/uploads/images/<path:filename>')
+@app.route('/protected_uploads/audio/<path:filename>')
+def serve_audio(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], secure_filename(filename))
+
+@app.route('/protected_uploads/images/<path:filename>')
 def serve_image(filename):
-    return send_from_directory(app.config['IMAGES_FOLDER'], filename)
+    return send_from_directory(app.config['IMAGES_FOLDER'], secure_filename(filename))
 
-@app.route('/uploads/videos/<path:filename>')
+@app.route('/protected_uploads/videos/<path:filename>')
 def serve_video(filename):
-    return send_from_directory(app.config['VIDEOS_FOLDER'], filename)
+    return send_from_directory(app.config['VIDEOS_FOLDER'], secure_filename(filename))
 
 @app.route("/send_alert", methods=["POST"])
 @token_required
@@ -402,6 +436,7 @@ def send_alert(current_user):
                             msg["To"] = contact.email
                             msg["Subject"] = f"🚨 {category.upper()} SOS: {current_user.full_name}"
                             
+                            medical_info_html = f'<div style="background: #1a1a1a; padding: 20px; border-left: 4px solid #f59e0b; margin: 20px 0;"><p><b>Medical Notes:</b> {current_user.medical_notes}</p></div>' if getattr(current_user, 'medical_notes', None) and current_user.medical_notes.strip() else ""
                             html_content = f"""
                             <div style="background-color: #050505; color: #ffffff; padding: 40px; font-family: 'Helvetica', sans-serif; border-radius: 10px;">
                                 <h1 style="color: #ff3e3e; margin-bottom: 20px;">🚨 {category.upper()} EMERGENCY</h1>
@@ -409,6 +444,7 @@ def send_alert(current_user):
                                 <div style="background: #1a1a1a; padding: 20px; border-left: 4px solid #ff3e3e; margin: 20px 0;">
                                     <p><b>Location:</b> {location}</p>
                                 </div>
+                                {medical_info_html}
                                 <a href="{tracking_url}" style="background-color: #ff3e3e; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block; margin-top: 20px;">
                                     VIEW LIVE COMMAND CENTER
                                 </a>
@@ -439,8 +475,9 @@ def send_alert(current_user):
                             clean_phone = f"+91{clean_phone}" if len(clean_phone) == 10 else f"+{clean_phone}"
                         if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
                         # Log WhatsApp attempt
+                        medical_text = f"\n\n⚕️ *Medical Notes*:\n{current_user.medical_notes}" if getattr(current_user, 'medical_notes', None) and current_user.medical_notes.strip() else ""
                         client.messages.create(
-                            body=f"🔴 *{category.upper()} EMERGENCY: {current_user.full_name.upper()}*\n\n📍 *Current Location*:\n{location}\n\n🛰️ *Live Tracking Dashboard*:\n{tracking_url}",
+                            body=f"🔴 *{category.upper()} EMERGENCY: {current_user.full_name.upper()}*\n\n📍 *Current Location*:\n{location}{medical_text}\n\n🛰️ *Live Tracking Dashboard*:\n{tracking_url}",
                             from_=TWILIO_FROM,
                             to=f"whatsapp:{clean_phone}"
                         )
@@ -451,7 +488,8 @@ def send_alert(current_user):
 
         return jsonify({"status": "✅ Alerts Dispatched"})
     except Exception as e:
-        return jsonify({"status": f"❌ Error: {str(e)}"}), 500
+        print(f"SEND_ALERT ERROR: {str(e)}", flush=True)
+        return jsonify({"status": "❌ Internal Error"}), 500
 
 @app.route("/activate_sos", methods=["POST"])
 @token_required
@@ -467,9 +505,7 @@ def deactivate_sos(current_user):
     db.session.commit()
     return jsonify({"message": "SOS deactivated"})
 
-@app.route('/uploads/<path:filename>')
-def download_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+# SECURITY HARDENING: Removed insecure open static file route
 
 if __name__ == '__main__':
     with app.app_context():

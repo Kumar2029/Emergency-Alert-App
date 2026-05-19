@@ -85,7 +85,7 @@
                     style="background: rgba(59, 130, 246, 0.2); border: 1px solid #3b82f6; color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
                     SCAN HELP
                 </button>
-                <button onclick="toggleStealth()"
+                <button id="stealthBtn" onclick="toggleStealth()"
                     style="background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: white; border-radius: 8px; padding: 6px 12px; font-size: 10px; cursor: pointer; font-weight: 700; backdrop-filter: blur(5px);">
                     HIDE UI
                 </button>
@@ -260,7 +260,13 @@
 
         function toggleStealth() {
             const overlay = document.querySelector('.dashboard-overlay');
-            if (overlay) overlay.classList.toggle('stealth-mode');
+            const btn = document.getElementById('stealthBtn');
+            if (overlay) {
+                overlay.classList.toggle('stealth-mode');
+                if (btn) {
+                    btn.innerText = overlay.classList.contains('stealth-mode') ? 'SHOW UI' : 'HIDE UI';
+                }
+            }
         }
 
         async function fetchNearbyServices(lat, lng) {
@@ -300,6 +306,20 @@
                 
                 if (document.getElementById('userName')) document.getElementById('userName').innerText = data.full_name || "Vasanth Kumar";
                 if (document.getElementById('battery')) document.getElementById('battery').innerText = data.battery ? `${data.battery}%` : '--%';
+
+                // Update SOS Status Indicator
+                const sosIndicator = document.querySelector('.sos-indicator');
+                if (sosIndicator) {
+                    if (data.is_active === false) {
+                        sosIndicator.innerHTML = '<span class="status-pulse" style="background:#4ade80; animation:none;"></span>SOS RESOLVED';
+                        sosIndicator.style.color = '#4ade80';
+                        sosIndicator.style.borderColor = '#4ade80';
+                    } else {
+                        sosIndicator.innerHTML = '<span class="status-pulse"></span>ACTIVE SOS SIGNAL';
+                        sosIndicator.style.color = 'var(--accent-red)';
+                        sosIndicator.style.borderColor = 'var(--accent-red)';
+                    }
+                }
 
                 if (data.location) {
                     const match = data.location.match(/(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/);

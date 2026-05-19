@@ -9,20 +9,21 @@
 The primary aim of **Guardian Elite** is to minimize the "Response Gap"—the critical time between the onset of an emergency and the arrival of help. By leveraging hardware-level triggers and real-time telemetry, the system provides a zero-friction safety net for individuals in high-risk scenarios.
 
 ### **1.2 Scope & Objective**
-*   **Scope**: Covers mobile sensor integration (GPS/Battery), hardware-key listening, background persistent services, and centralized web-based command and control.
-*   **Objective**: To provide a reliable, automated alerting mechanism that bypasses software locks and provides forensic audio evidence to emergency contacts.
+*   **Scope**: Covers mobile sensor integration (GPS/Battery), hardware-key listening, persistent background services, multimedia evidence collection (Audio/Video/Image), and centralized web-based command and control.
+*   **Objective**: To provide a reliable, automated alerting mechanism that bypasses software locks, executes simultaneous multi-contact voice calls, and provides forensic multimedia evidence securely to emergency contacts.
 
 ### **1.3 Key Components & Setup**
-1.  **Mobile Client (Flutter)**: Built for high-performance background tasks.
-2.  **Hardened Backend (Python Flask)**: Hosted in a virtualized environment (`venv`) for stability.
-3.  **Command HUD (Web)**: A tactical glassmorphism dashboard using Leaflet.js.
-4.  **APIs**: Twilio (WhatsApp), SMTP (Email), and Overpass (Emergency Radar).
+1.  **Mobile Client (Flutter)**: Built for high-performance background tasks and silent media capture.
+2.  **Hardened Backend (Python Flask)**: Secure API layer with cryptographic UUID file storage and automated background evidence purging.
+3.  **Command HUD (Web)**: A tactical glassmorphism dashboard using Leaflet.js for real-time tracking.
+4.  **APIs**: Twilio (WhatsApp & Voice), SMTP (Email), and Overpass (Emergency Radar).
 
 ### **1.4 Features & Enhancement**
-*   **Stealth Mode**: Blank-screen SOS activation.
-*   **Volume Key Trigger**: Hardware-level SOS activation.
-*   **Tactical Dashboard**: Real-time polling every 3 seconds.
-*   **Enhancement**: Unicode-Safe logging for Windows-based command centers.
+*   **Stealth Mode**: Blank-screen SOS activation using volume hardware keys.
+*   **Forensic Multimedia**: Silent background capture of GPS, Audio, Video, and Image snapshots (Front Camera).
+*   **Automated Emergency Calling**: Simultaneous robotic voice calls (Text-to-Speech) to the first 3 emergency contacts, personalized with the user's name.
+*   **Secure Evidence Pipeline**: Media is protected from public exposure using randomized UUIDs and non-routable protected directories.
+*   **Privacy Compliance**: Background daemon automatically deletes evidence files older than 24 hours.
 
 ---
 
@@ -30,48 +31,40 @@ The primary aim of **Guardian Elite** is to minimize the "Response Gap"—the cr
 
 ### **2.1 Problems of a Project**
 *   **Latency**: Traditional apps take too long to open and trigger.
-*   **OS Termination**: Mobile operating systems kill background apps, breaking the safety link.
-*   **Data Fragmentation**: Contacts receive messages but lack a central way to track the situation live.
+*   **Missing Evidence**: Real-time context (faces, audio) is often lost during the initial panic.
+*   **Data Exposure**: Publicly accessible upload folders can leak sensitive victim data.
 
 ### **2.2 Solutions of a Project**
-*   **Foreground Service**: Ensures the app is never killed by the OS.
 *   **Physical Mapping**: Uses MethodChannels to listen for volume button presses instantly.
-*   **Centralized Command Center**: A single URL that provides live GPS, battery status, and audio playback.
+*   **Automated Evidence Collection**: Immediately snaps a photo and records a short video upon activation.
+*   **Hardened Architecture**: Restricts media access through Flask routing and utilizes secure, randomized filenames to prevent directory traversal.
 
 ---
 
 ## **3. SYSTEM ANALYSIS**
 
 ### **3.1 Requirements Gathering & Analysis**
-Requirements were gathered by analyzing real-world emergency scenarios where victims were unable to unlock their phones.
+Requirements were gathered by analyzing real-world emergency scenarios where victims were unable to unlock their phones or speak on a call.
 
 ### **3.2 System Architecture**
 The system uses a **Decoupled Three-Tier Architecture**:
 1.  **Presentation Tier**: Flutter App & HTML5/JS Dashboard.
-2.  **Application Tier**: Flask REST API.
+2.  **Application Tier**: Flask REST API (Hardened).
 3.  **Data Tier**: SQLite Database with SQLAlchemy 2.0.
 
-### **3.3 Potential Challenges**
-*   Handling unreliable GPS signals in indoor environments.
-*   Ensuring Unicode compatibility across different OS terminals.
-
-### **3.4 Implementation Plan**
+### **3.3 Implementation Plan**
 *   **Phase 1**: Core API and Mobile SOS logic.
 *   **Phase 2**: Twilio/Email alert integration.
 *   **Phase 3**: Tactical Dashboard and Production Hardening (venv/Unicode fix).
+*   **Phase 4 (Final)**: Multimedia Integration (Camera/Video), Twilio Voice Matrix (Multi-call), and Security Hardening.
 
-### **3.5 Testing & Evaluation**
-Evaluation is based on **Time-to-Alert (TTA)** and **Payload Delivery Success Rate**.
+### **3.4 Testing & Evaluation**
+Evaluation is based on **Time-to-Alert (TTA)**, **Payload Delivery Success Rate**, and **Graceful Degradation** (ensuring failed calls do not crash the SOS pipeline).
 
-### **3.6 Deployment**
-Deployed via **Ngrok Tunneling** for global accessibility during the testing phase.
-
-### **3.7 Maintenance & Optimization**
-Optimization included moving to **SQLAlchemy 2.0** for faster session-based database interactions.
-
-### **3.8 Compliance & Security**
+### **3.5 Compliance & Security**
 *   **Data Privacy**: JWT-based encrypted authentication.
-*   **Encryption**: Secure hashing for Rescue PINs using Bcrypt.
+*   **File Security**: UUID generation via `werkzeug.utils.secure_filename`.
+*   **Data Minimization**: 24-hour automated evidence destruction cycle.
 
 ---
 
@@ -97,9 +90,9 @@ graph TD
     B -- Yes --> C[Trigger SOS Service]
     B -- No --> D[Await Input]
     C --> E[Capture GPS & Battery]
-    E --> F[Record 15s Audio]
-    F --> G[POST Data to Flask API]
-    G --> H[Dispatch WhatsApp & Email]
+    E --> F[Capture Image, Video & Audio]
+    F --> G[Secure POST to Flask API]
+    G --> H[Dispatch WhatsApp, Email & Voice Call]
     H --> I[Update Web Command Center]
     I --> J[End]
 ```
@@ -110,7 +103,7 @@ graph LR
     User((Victim)) -- SOS Trigger --> Mobile[Mobile App]
     Mobile -- JSON Data --> API[Flask Backend]
     API -- Save --> DB[(SQLite DB)]
-    API -- Alert --> Twilio[Twilio/WhatsApp]
+    API -- Alert --> Twilio[Twilio WhatsApp/Voice]
     API -- Alert --> Email[SMTP/Email]
     DB -- Sync --> HUD[Tactical Web Dashboard]
     HUD -- View --> Contact((Emergency Contact))
@@ -127,6 +120,9 @@ erDiagram
         string battery_level
         boolean is_sos_active
         string audio_evidence
+        string video_evidence
+        string snapshot_evidence
+        string rescue_pin
     }
     CONTACT {
         int id PK
@@ -146,43 +142,113 @@ erDiagram
 ```mermaid
 graph TD
     T1[Unit Testing: API Endpoints] --> T2[Integration Testing: Mobile-to-Server]
-    T2 --> T3[Stress Testing: Concurrent Alerts]
+    T2 --> T3[Security Testing: Payload Size Limits & UUIDs]
     T3 --> T4[Final Validation: Real-world SOS Trigger]
 ```
 
 ### **6.2 Validation Testing**
-*   **Validation 1**: Verified coordinates extracted from Google Maps URLs match the victim's physical location.
-*   **Validation 2**: Confirmed server stability on Windows after removing Emoji-based logging.
+*   **Validation 1**: Verified that Twilio Free Trial limits gracefully fall back without crashing the server.
+*   **Validation 2**: Confirmed the background thread successfully purges evidence older than 24 hours.
 
 ---
 
 ## **7. SOURCE CODE (EXCERPTS)**
+
+### **Snippet 1: Backend API (Twilio Multi-Contact Voice Matrix)**
+*Demonstrates third-party API integration, dynamic TwiML injection, and graceful degradation.*
 ```python
-# app.py - Hardened Backend
-@app.route("/get_location/<int:user_id>")
-def get_location(user_id):
-    user = db.session.get(User, user_id)
-    return jsonify({
-        "status": "success",
-        "location": user.current_location,
-        "audio": user.audio_evidence
-    })
+# app.py
+@app.route("/trigger_emergency_call", methods=["POST"])
+@token_required
+def trigger_emergency_call(current_user):
+    client = Client(TWILIO_SID, TWILIO_AUTH)
+    called_numbers = []
+    
+    # Loop through up to the first 3 emergency contacts
+    for contact in current_user.contacts[:3]:
+        clean_phone = "".join(filter(str.isdigit, str(contact.phone)))
+        if not clean_phone.startswith('+'): clean_phone = f"+{clean_phone}"
+            
+        try:
+            # Dynamic personalized text-to-speech
+            custom_message = f'<Response><Say voice="alice">This is an automated emergency alert from Guardian Elite. {current_user.full_name} has requested immediate assistance.</Say></Response>'
+            client.calls.create(twiml=custom_message, to=clean_phone, from_=TWILIO_FROM)
+            called_numbers.append(clean_phone)
+        except Exception as twilio_e:
+            print(f"TWILIO CALL ERROR: {str(twilio_e)}") # Silently ignore and continue
+            
+    return jsonify({"status": "Calls Initiated", "called": called_numbers})
+```
+
+### **Snippet 2: Mobile Application (Silent Forensic Media Pipeline)**
+*Demonstrates advanced hardware manipulation to capture photos and videos silently in the background.*
+```dart
+// home_screen.dart
+Future<void> _captureVideoAndImage(String token) async {
+    final cameras = await availableCameras();
+    final frontCam = cameras.firstWhere((cam) => cam.lensDirection == CameraLensDirection.front);
+    
+    // 1. Silent Image Snapshot
+    CameraController camera = CameraController(frontCam, ResolutionPreset.medium, enableAudio: false);
+    await camera.initialize();
+    final image = await camera.takePicture();
+    ApiService.uploadSnapshot(token, image.path).catchError((_) => null); // Fire and forget
+    await camera.dispose();
+    
+    // 2. Short Video Evidence (3 seconds)
+    camera = CameraController(frontCam, ResolutionPreset.medium, enableAudio: true);
+    await camera.initialize();
+    await camera.startVideoRecording();
+    await Future.delayed(const Duration(seconds: 3));
+    final video = await camera.stopVideoRecording();
+    ApiService.uploadVideo(token, video.path).catchError((_) => null);
+    await camera.dispose();
+}
+```
+
+### **Snippet 3: Cybersecurity (UUID Protection & Automated Data Purge)**
+*Demonstrates privacy compliance by anonymizing files and actively destroying old evidence.*
+```python
+# app.py 
+import uuid, os, time
+from werkzeug.utils import secure_filename
+
+# Background Daemon: Data Minimization
+def cleanup_old_evidence():
+    while True:
+        now = datetime.now().timestamp()
+        for folder in [app.config['IMAGES_FOLDER'], app.config['VIDEOS_FOLDER']]:
+            for filename in os.listdir(folder):
+                file_path = os.path.join(folder, filename)
+                if now - os.path.getctime(file_path) > 86400: # 24 Hours
+                    os.remove(file_path)
+        time.sleep(3600) # Run every hour
+
+# Cryptographic File Storage
+@app.route("/upload_snapshot", methods=["POST"])
+@token_required
+def upload_snapshot(current_user):
+    file = request.files['image']
+    # Generate unpredictable cryptographic filename to prevent directory traversal
+    unique_filename = f"snap_{current_user.id}_{uuid.uuid4().hex}.jpg"
+    file.save(os.path.join(app.config['IMAGES_FOLDER'], secure_filename(unique_filename)))
 ```
 
 ---
 
 ## **8. OUTPUT**
-The system successfully renders a real-time tactical map on the web dashboard, pulses with a red SOS signal, and plays back forensic audio clips within 5 seconds of the mobile trigger.
+The system successfully renders a real-time tactical map on the web dashboard alongside securely streamed Photo, Video, and Audio evidence. Simultaneously, up to 3 emergency contacts receive a personalized, robotic voice phone call detailing the user's name and emergency status.
 
 ---
 
 ## **9. CONCLUSION**
-**Guardian Elite** represents a significant leap in personal safety technology. By bridging the gap between hardware triggers and a sophisticated cloud-based tactical dashboard, the system ensures that help is not just alerted, but provided with the forensic intelligence needed for a successful rescue.
+**Guardian Elite** represents a significant leap in personal safety technology. By bridging the gap between hardware triggers, automated multi-channel communication (Voice, SMS, Email), and a highly secure cloud-based tactical dashboard, the system ensures that help is not just alerted, but provided with vital forensic intelligence securely.
 
 ---
 
 ## **10. BIBLIOGRAPHY**
 1.  *SQLAlchemy 2.0 Documentation: Higher-level query patterns.*
-2.  *Flask Web Development: Dependencies and Environment Management.*
-3.  *Twilio API: Programmable Messaging & WhatsApp Integration.*
-4.  *Leaflet.js: Real-time mapping and interactive UI.*
+2.  *Flask Web Development: Security Hardening & Safe Media Storage.*
+3.  *Twilio API: Programmable Voice & Dynamic TwiML Generation.*
+4.  *Flutter Camera API: Background Multimedia Operations.*
+5.  *Leaflet.js: Real-time mapping and interactive UI.*

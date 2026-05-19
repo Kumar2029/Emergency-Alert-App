@@ -15,6 +15,7 @@ import 'package:flutter_background/flutter_background.dart';
 import 'package:camera/camera.dart';
 import 'auth_provider.dart';
 import 'api_service.dart';
+import 'package:http/http.dart' as http;
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
