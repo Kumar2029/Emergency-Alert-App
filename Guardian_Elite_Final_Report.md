@@ -22,6 +22,7 @@ The primary aim of **Guardian Elite** is to minimize the "Response Gap"—the cr
 *   **Stealth Mode**: Blank-screen SOS activation using volume hardware keys.
 *   **Forensic Multimedia**: Silent background capture of GPS, Audio, Video, and Image snapshots (Front Camera).
 *   **Automated Emergency Calling**: Simultaneous robotic voice calls (Text-to-Speech) to the first 3 emergency contacts, personalized with the user's name.
+*   **Paramedic Medical Injection**: Automatically retrieves and injects the user's critical medical notes (e.g., allergies, blood type) directly into the WhatsApp and Email payloads.
 *   **Secure Evidence Pipeline**: Media is protected from public exposure using randomized UUIDs and non-routable protected directories.
 *   **Privacy Compliance**: Background daemon automatically deletes evidence files older than 24 hours.
 
@@ -55,14 +56,14 @@ The system uses a **Decoupled Three-Tier Architecture**:
 ### **3.3 Implementation Plan**
 *   **Phase 1**: Core API and Mobile SOS logic.
 *   **Phase 2**: Twilio/Email alert integration.
-*   **Phase 3**: Tactical Dashboard and Production Hardening (venv/Unicode fix).
-*   **Phase 4 (Final)**: Multimedia Integration (Camera/Video), Twilio Voice Matrix (Multi-call), and Security Hardening.
+*   **Phase 3**: Tactical Dashboard and Production Hardening (venv/Unicode fix, Responsive CSS).
+*   **Phase 4 (Final)**: Multimedia Integration (Camera/Video), Medical Data Injection, Twilio Voice Matrix, and Security Hardening.
 
 ### **3.4 Testing & Evaluation**
 Evaluation is based on **Time-to-Alert (TTA)**, **Payload Delivery Success Rate**, and **Graceful Degradation** (ensuring failed calls do not crash the SOS pipeline).
 
 ### **3.5 Compliance & Security**
-*   **Data Privacy**: JWT-based encrypted authentication.
+*   **Data Privacy**: JWT-based encrypted authentication (Tokens hardened to 30-day lifespans for uninterrupted crisis deployment).
 *   **File Security**: UUID generation via `werkzeug.utils.secure_filename`.
 *   **Data Minimization**: 24-hour automated evidence destruction cycle.
 
@@ -92,7 +93,7 @@ graph TD
     C --> E[Capture GPS & Battery]
     E --> F[Capture Image, Video & Audio]
     F --> G[Secure POST to Flask API]
-    G --> H[Dispatch WhatsApp, Email & Voice Call]
+    G --> H[Inject Medical Data & Dispatch Alerts]
     H --> I[Update Web Command Center]
     I --> J[End]
 ```
@@ -237,7 +238,7 @@ def upload_snapshot(current_user):
 ---
 
 ## **8. OUTPUT**
-The system successfully renders a real-time tactical map on the web dashboard alongside securely streamed Photo, Video, and Audio evidence. Simultaneously, up to 3 emergency contacts receive a personalized, robotic voice phone call detailing the user's name and emergency status.
+The system successfully renders a real-time tactical map on the web dashboard (fully responsive for mobile browsers) alongside securely streamed Photo, Video, and Audio evidence. Simultaneously, emergency contacts receive a personalized, robotic voice phone call, as well as an email and WhatsApp message prominently displaying the victim's live tracking link and critical medical notes.
 
 ---
 
